@@ -126,13 +126,14 @@ mod tests {
     /// 测试客户端到服务端的完整连接流程
     #[tokio::test]
     async fn test_client_server_integration() {
-        // 初始化日志（仅用于测试）
+        // 初始化日志
         let _ = tracing_subscriber::fmt().try_init();
 
-        // 使用不同的端口避免冲突
-        let server_port = 18388;
-        let client_port = 11080;
-        let test_server_port = 18080; // 模拟目标服务器
+        // 使用随机端口避免冲突
+        let test_server_port = 18080;
+        let server_port = 18081;
+        let client_port = 18082;
+        let udp_port = 18083; // 为此测试分配专用UDP端口
 
         // 创建服务端配置
         let server_config = ServerConfig::new(
@@ -143,7 +144,7 @@ mod tests {
         );
 
         // 创建客户端配置
-        let client_config = ClientConfig::new(
+        let mut client_config = ClientConfig::new(
             "127.0.0.1".to_string(),
             server_port,
             "127.0.0.1".to_string(),
@@ -151,6 +152,9 @@ mod tests {
             "test_password_123".to_string(),
             "aes-256-gcm".to_string(),
         );
+        
+        // 设置专用UDP端口避免冲突
+        client_config.local_udp_port = Some(udp_port);
 
         // 验证配置
         assert!(server_config.validate().is_ok());
@@ -285,6 +289,7 @@ mod tests {
         // 使用不同的端口避免冲突
         let server_port = 28388;
         let client_port = 21080;
+        let udp_port = 21082; // 为此测试分配专用UDP端口
         let password = "e2e_test_password_456";
 
         // 创建服务端配置
@@ -296,7 +301,7 @@ mod tests {
         );
 
         // 创建客户端配置
-        let client_config = ClientConfig::new(
+        let mut client_config = ClientConfig::new(
             "127.0.0.1".to_string(),
             server_port,
             "127.0.0.1".to_string(),
@@ -304,6 +309,9 @@ mod tests {
             password.to_string(),
             "aes-256-gcm".to_string(),
         );
+        
+        // 设置专用UDP端口避免冲突
+        client_config.local_udp_port = Some(udp_port);
 
         // 验证配置
         assert!(server_config.validate().is_ok());
