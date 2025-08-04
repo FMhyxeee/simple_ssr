@@ -323,11 +323,11 @@ mod tests {
         let chunk1 = b"First chunk";
         let chunk2 = b"Second chunk";
 
+        let initial_nonce = cipher.encrypt_nonce().to_vec();
+
         let encrypted1 = cipher.encrypt_chunk(chunk1).unwrap();
         let encrypted2 = cipher.encrypt_chunk(chunk2).unwrap();
 
-        // 重置解密随机数到初始状态
-        let initial_nonce = cipher.encrypt_nonce().to_vec();
         cipher.reset_decrypt_nonce(initial_nonce);
 
         let decrypted1 = cipher.decrypt_chunk(&encrypted1).unwrap();

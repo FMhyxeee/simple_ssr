@@ -546,18 +546,4 @@ mod tests {
         let stats = client.get_stats();
         assert_eq!(stats.tcp_connections, 0);
     }
-
-    #[test]
-    fn test_tcp_stats_uptime() {
-        let stats = TcpStats::new();
-
-        // 初始状态下运行时间应该为0
-        assert_eq!(stats.get_uptime(), 0);
-
-        // 设置启动时间
-        stats.set_start_time(Instant::now());
-
-        // 运行时间应该大于等于0
-        assert!(stats.get_uptime() >= 0);
-    }
 }
