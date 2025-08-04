@@ -58,7 +58,7 @@ enum Commands {
         server_port: Option<u16>,
 
         /// 本地地址
-        #[arg(short, long)]
+        #[arg(short = 'b', long)]
         local: Option<String>,
 
         /// 本地端口
