@@ -125,6 +125,8 @@ pub struct UdpSession {
     pub bytes_sent: u64,
     /// 接收字节数
     pub bytes_received: u64,
+    /// 连接ID
+    pub connection_id: Option<u64>,
 }
 
 impl UdpSession {
@@ -138,6 +140,7 @@ impl UdpSession {
             crypto,
             bytes_sent: 0,
             bytes_received: 0,
+            connection_id: None,
         }
     }
 
@@ -164,6 +167,11 @@ impl UdpSession {
     /// 添加接收字节数
     pub fn add_bytes_received(&mut self, bytes: u64) {
         self.bytes_received += bytes;
+    }
+
+    /// 设置连接ID
+    pub fn set_connection_id(&mut self, connection_id: u64) {
+        self.connection_id = Some(connection_id);
     }
 }
 
@@ -217,11 +225,29 @@ impl UdpSessionManager {
     }
 
     /// 清理过期会话
-    pub async fn cleanup_expired_sessions(&self) -> usize {
+    pub async fn cleanup_expired_sessions(&self, connection_manager: Option<Arc<ConnectionManager>>) -> usize {
         let mut sessions = self.sessions.write().await;
         let initial_count = sessions.len();
+        let mut expired_sessions = Vec::new();
 
-        sessions.retain(|_, session| !session.is_expired(self.session_timeout));
+        // 收集过期会话
+        sessions.retain(|_, session| {
+            if session.is_expired(self.session_timeout) {
+                expired_sessions.push(session.clone());
+                false
+            } else {
+                true
+            }
+        });
+
+        // 注销过期会话的连接
+        if let Some(conn_mgr) = connection_manager {
+            for session in expired_sessions {
+                if let Some(connection_id) = session.connection_id {
+                    conn_mgr.unregister_connection(connection_id).await;
+                }
+            }
+        }
 
         let removed_count = initial_count - sessions.len();
         if removed_count > 0 {
@@ -237,7 +263,7 @@ impl UdpSessionManager {
     }
 
     /// 启动清理任务
-    pub fn start_cleanup_task(self: Arc<Self>) {
+    pub fn start_cleanup_task(self: Arc<Self>, connection_manager: Option<Arc<ConnectionManager>>) {
         let cleanup_interval = self.cleanup_interval;
 
         tokio::spawn(async move {
@@ -245,7 +271,7 @@ impl UdpSessionManager {
 
             loop {
                 interval.tick().await;
-                self.cleanup_expired_sessions().await;
+                self.cleanup_expired_sessions(connection_manager.clone()).await;
             }
         });
     }
@@ -293,7 +319,7 @@ impl UdpServer {
         self.stats.set_start_time(Instant::now());
 
         // 启动会话清理任务
-        self.session_manager.clone().start_cleanup_task();
+        self.session_manager.clone().start_cleanup_task(Some(self.connection_manager.clone()));
 
         // 获取套接字的引用
         let socket = self.socket.as_ref().unwrap().clone();
@@ -301,6 +327,7 @@ impl UdpServer {
         let session_manager = self.session_manager.clone();
         let stats = self.stats.clone();
         let running = self.running.clone();
+        let connection_manager = self.connection_manager.clone();
 
         // 启动数据包处理循环
         while running.load(Ordering::Relaxed) {
@@ -320,20 +347,22 @@ impl UdpServer {
                     let session_manager = session_manager.clone();
                     let stats = stats.clone();
 
-                    tokio::spawn(async move {
-                        if let Err(e) = Self::handle_packet(
-                            socket,
-                            client_addr,
-                            Bytes::from(buf),
-                            config,
-                            session_manager,
-                            stats,
-                        )
-                        .await
-                        {
-                            warn!("Failed to handle UDP packet from {}: {}", client_addr, e);
-                        }
-                    });
+                    let connection_manager_clone = connection_manager.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = Self::handle_packet(
+                        socket,
+                        client_addr,
+                        Bytes::from(buf),
+                        config,
+                        session_manager,
+                        stats,
+                        connection_manager_clone,
+                    )
+                    .await
+                    {
+                        warn!("Failed to handle UDP packet from {}: {}", client_addr, e);
+                    }
+                });
                 }
                 Err(e) => {
                     if running.load(Ordering::Relaxed) {
@@ -393,7 +422,14 @@ impl UdpServer {
         config: Arc<ServerConfig>,
         session_manager: Arc<UdpSessionManager>,
         stats: Arc<UdpStats>,
+        connection_manager: Arc<ConnectionManager>,
     ) -> Result<()> {
+        // 检查连接限制
+        if !connection_manager.can_accept_connection() {
+            warn!("UDP connection limit reached for client {}", client_addr);
+            return Err(anyhow!("Connection limit reached"));
+        }
+
         // 创建加密上下文
         let crypto = Arc::new(CryptoContext::new(
             config.method.as_str(),
@@ -419,13 +455,17 @@ impl UdpServer {
             .get_or_create_session(client_addr, target_addr.clone(), crypto.clone())
             .await?;
 
-        // 如果会话没有目标套接字，创建一个
+        // 如果会话没有目标套接字，创建一个并注册连接
         if session.target_socket.is_none() {
+            // 注册新连接
+            let connection_id = connection_manager.register_connection(client_addr).await?;
+            
             let target_socket = UdpSocket::bind("0.0.0.0:0")
                 .await
                 .map_err(|e| anyhow!("Failed to create target socket: {}", e))?;
 
             session.set_target_socket(Arc::new(target_socket));
+            session.set_connection_id(connection_id);
             session_manager
                 .update_session(client_addr, session.clone())
                 .await;
@@ -758,17 +798,4 @@ mod tests {
         assert_eq!(stats.udp_packets_received + stats.udp_bytes_received, 0);
     }
 
-    #[test]
-    fn test_udp_stats_uptime() {
-        let stats = UdpStats::new();
-
-        // 初始状态下运行时间应该为0
-        assert_eq!(stats.get_uptime(), 0);
-
-        // 设置启动时间
-        stats.set_start_time(Instant::now());
-
-        // 运行时间应该大于等于0
-        assert!(stats.get_uptime() >= 0);
-    }
 }

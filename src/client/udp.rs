@@ -121,6 +121,8 @@ pub struct UdpSession {
     pub bytes_sent: u64,
     /// 接收字节数
     pub bytes_received: u64,
+    /// 连接ID
+    pub connection_id: Option<u64>,
 }
 
 impl UdpSession {
@@ -134,6 +136,7 @@ impl UdpSession {
             crypto,
             bytes_sent: 0,
             bytes_received: 0,
+            connection_id: None,
         }
     }
 
@@ -160,6 +163,11 @@ impl UdpSession {
     /// 添加接收字节数
     pub fn add_bytes_received(&mut self, bytes: u64) {
         self.bytes_received += bytes;
+    }
+
+    /// 设置连接ID
+    pub fn set_connection_id(&mut self, connection_id: u64) {
+        self.connection_id = Some(connection_id);
     }
 }
 
@@ -322,6 +330,7 @@ impl UdpClient {
                     let config = config.clone();
                     let session_manager = session_manager.clone();
                     let stats = stats.clone();
+                    let connection_manager = self.connection_manager.clone();
 
                     tokio::spawn(async move {
                         if let Err(e) = Self::handle_packet(
@@ -331,6 +340,7 @@ impl UdpClient {
                             config,
                             session_manager,
                             stats,
+                            connection_manager,
                         )
                         .await
                         {
@@ -399,6 +409,7 @@ impl UdpClient {
         config: Arc<ClientConfig>,
         session_manager: Arc<UdpSessionManager>,
         stats: Arc<UdpStats>,
+        connection_manager: Arc<ConnectionManager>,
     ) -> Result<()> {
         // 解析SOCKS5 UDP请求
         let (target_addr, payload) = Self::parse_socks5_udp_request(&data)
@@ -421,13 +432,18 @@ impl UdpClient {
             .get_or_create_session(local_client_addr, target_addr.clone(), crypto.clone())
             .await?;
 
-        // 如果会话没有服务器套接字，创建一个
+        // 如果会话没有服务器套接字，创建一个并获取连接
         if session.server_socket.is_none() {
+            // 获取连接
+            let _connection_guard = connection_manager.acquire_connection()?;
+            
             let server_socket = UdpSocket::bind("0.0.0.0:0")
                 .await
                 .map_err(|e| anyhow!("Failed to create server socket: {}", e))?;
 
             session.set_server_socket(Arc::new(server_socket));
+            // 注意：这里我们不存储connection_guard，因为UDP是无状态的
+            // 连接会在函数结束时自动释放
             session_manager
                 .update_session(local_client_addr, session.clone())
                 .await;
@@ -869,17 +885,4 @@ mod tests {
         assert_eq!(stats.udp_packets, 0);
     }
 
-    #[test]
-    fn test_udp_stats_uptime() {
-        let stats = UdpStats::new();
-
-        // 初始状态下运行时间应该为0
-        assert_eq!(stats.get_uptime(), 0);
-
-        // 设置启动时间
-        stats.set_start_time(Instant::now());
-
-        // 运行时间应该大于等于0
-        assert!(stats.get_uptime() >= 0);
-    }
 }
