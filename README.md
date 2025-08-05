@@ -261,23 +261,3 @@ iftop -i eth0
 4. 推送到分支 (`git push origin feature/amazing-feature`)
 5. 创建 Pull Request
 
-## 许可证
-
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
-
-## 致谢
-
-- [Shadowsocks](https://shadowsocks.org/) - 原始项目
-- [Tokio](https://tokio.rs/) - 异步运行时
-- [Ring](https://github.com/briansmith/ring) - 加密库
-- [Clap](https://clap.rs/) - 命令行解析
-
-## 联系
-
-- 项目主页: https://github.com/your-username/simple_ssr
-- 问题反馈: https://github.com/your-username/simple_ssr/issues
-- 邮箱: your-email@example.com
-
----
-
-**注意**: 请遵守当地法律法规，合理使用本软件。
