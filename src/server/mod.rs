@@ -3,11 +3,13 @@
 //! 实现Shadowsocks服务端的核心功能，包括TCP和UDP代理
 
 use anyhow::{Result, anyhow};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
+use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
 use crate::config::ServerConfig;
@@ -21,6 +23,14 @@ pub mod udp;
 pub use tcp::TcpServer;
 pub use udp::UdpServer;
 
+/// 连接信息
+#[derive(Debug, Clone)]
+pub struct ConnectionInfo {
+    client_addr: SocketAddr,
+    start_time: Instant,
+    last_activity: Instant,
+}
+
 /// 连接管理器，用于管理服务器连接
 #[derive(Debug)]
 pub struct ConnectionManager {
@@ -28,6 +38,8 @@ pub struct ConnectionManager {
     active_connections: AtomicUsize,
     total_connections: AtomicU64,
     start_time: Instant,
+    connections: Arc<RwLock<HashMap<u64, ConnectionInfo>>>,
+    connection_timeout: Duration,
 }
 
 /// 连接统计信息
@@ -46,6 +58,8 @@ impl ConnectionManager {
             active_connections: AtomicUsize::new(0),
             total_connections: AtomicU64::new(0),
             start_time: Instant::now(),
+            connections: Arc::new(RwLock::new(HashMap::new())),
+            connection_timeout: Duration::from_secs(300), // 5分钟超时
         }
     }
 
@@ -55,7 +69,7 @@ impl ConnectionManager {
     }
 
     /// 注册新连接
-    pub async fn register_connection(&self, _client_addr: SocketAddr) -> Result<u64> {
+    pub async fn register_connection(&self, client_addr: SocketAddr) -> Result<u64> {
         if !self.can_accept_connection() {
             return Err(anyhow!("Connection limit reached"));
         }
@@ -63,12 +77,32 @@ impl ConnectionManager {
         self.active_connections.fetch_add(1, Ordering::SeqCst);
         let connection_id = self.total_connections.fetch_add(1, Ordering::SeqCst);
 
+        // 记录连接信息
+        let connection_info = ConnectionInfo {
+            client_addr,
+            start_time: Instant::now(),
+            last_activity: Instant::now(),
+        };
+
+        let mut connections = self.connections.write().await;
+        connections.insert(connection_id, connection_info);
+        
+        debug!("Registered connection {} from {}", connection_id, client_addr);
         Ok(connection_id)
     }
 
     /// 注销连接
-    pub async fn unregister_connection(&self, _connection_id: u64) {
+    pub async fn unregister_connection(&self, connection_id: u64) {
         self.active_connections.fetch_sub(1, Ordering::SeqCst);
+        
+        let mut connections = self.connections.write().await;
+        if let Some(conn_info) = connections.remove(&connection_id) {
+            let duration = conn_info.start_time.elapsed();
+            debug!(
+                "Unregistered connection {} from {}, duration: {:?}",
+                connection_id, conn_info.client_addr, duration
+            );
+        }
     }
 
     /// 获取连接统计信息
@@ -82,11 +116,101 @@ impl ConnectionManager {
 
     /// 运行清理任务
     pub async fn run_cleanup_task(&self) {
-        // 这里可以添加定期清理逻辑
+        let mut cleanup_interval = tokio::time::interval(Duration::from_secs(60));
+        let mut stats_interval = tokio::time::interval(Duration::from_secs(300)); // 5分钟统计一次
+        
         loop {
-            tokio::time::sleep(Duration::from_secs(60)).await;
-            debug!("Connection manager cleanup task running");
+            tokio::select! {
+                _ = cleanup_interval.tick() => {
+                    self.cleanup_expired_connections().await;
+                }
+                _ = stats_interval.tick() => {
+                    self.log_statistics().await;
+                }
+            }
         }
+    }
+    
+    /// 清理过期连接
+    async fn cleanup_expired_connections(&self) {
+        let now = Instant::now();
+        let mut connections = self.connections.write().await;
+        let mut expired_connections = Vec::new();
+        
+        // 查找过期连接
+        for (&connection_id, connection_info) in connections.iter() {
+            if now.duration_since(connection_info.last_activity) > self.connection_timeout {
+                expired_connections.push(connection_id);
+            }
+        }
+        
+        // 移除过期连接
+        for connection_id in expired_connections {
+            if let Some(conn_info) = connections.remove(&connection_id) {
+                self.active_connections.fetch_sub(1, Ordering::SeqCst);
+                warn!(
+                    "Cleaned up expired connection {} from {}, duration: {:?}",
+                    connection_id, 
+                    conn_info.client_addr, 
+                    conn_info.start_time.elapsed()
+                );
+            }
+        }
+        
+        debug!("Connection cleanup completed, active connections: {}", 
+               self.active_connections.load(Ordering::Relaxed));
+    }
+    
+    /// 记录统计信息
+    async fn log_statistics(&self) {
+        let stats = self.get_stats();
+        let connections = self.connections.read().await;
+        
+        info!(
+            "Connection statistics - Active: {}, Total: {}, Uptime: {}s, Tracked: {}",
+            stats.active_connections,
+            stats.total_connections,
+            stats.uptime,
+            connections.len()
+        );
+        
+        // 记录连接持续时间分布
+        let mut durations: Vec<Duration> = connections
+            .values()
+            .map(|conn| conn.start_time.elapsed())
+            .collect();
+        
+        if !durations.is_empty() {
+            durations.sort();
+            let median_idx = durations.len() / 2;
+            let median_duration = durations[median_idx];
+            let max_duration = durations.last().unwrap();
+            
+            debug!(
+                "Connection duration stats - Median: {:?}, Max: {:?}",
+                median_duration, max_duration
+            );
+        }
+    }
+    
+    /// 更新连接活动时间
+    pub async fn update_connection_activity(&self, connection_id: u64) {
+        let mut connections = self.connections.write().await;
+        if let Some(connection_info) = connections.get_mut(&connection_id) {
+            connection_info.last_activity = Instant::now();
+        }
+    }
+    
+    /// 获取连接详细信息
+    pub async fn get_connection_info(&self, connection_id: u64) -> Option<ConnectionInfo> {
+        let connections = self.connections.read().await;
+        connections.get(&connection_id).cloned()
+    }
+    
+    /// 获取所有活跃连接
+    pub async fn get_active_connections(&self) -> Vec<(u64, ConnectionInfo)> {
+        let connections = self.connections.read().await;
+        connections.iter().map(|(&id, info)| (id, info.clone())).collect()
     }
 
     /// 停止连接管理器
@@ -298,11 +422,12 @@ impl ServerStats {
 }
 
 /// 处理客户端连接的通用函数
+/// 返回 (发送字节数, 接收字节数)
 pub async fn handle_client_connection(
     mut client_stream: TcpStream,
     config: Arc<ServerConfig>,
     connection_manager: Arc<ConnectionManager>,
-) -> Result<()> {
+) -> Result<(u64, u64)> {
     let client_addr = client_stream
         .peer_addr()
         .map_err(|e| anyhow!("Failed to get client address: {}", e))?;
@@ -355,16 +480,16 @@ pub async fn handle_client_connection(
                     "Connection closed: {} -> {}, transferred: {} bytes up, {} bytes down",
                     client_addr, target_address, client_to_target, target_to_client
                 );
+                Ok((client_to_target, target_to_client))
             }
             Err(e) => {
                 warn!(
                     "Connection error: {} -> {}: {}",
                     client_addr, target_address, e
                 );
+                Err(e)
             }
         }
-
-        Ok(())
     }
     .await;
 

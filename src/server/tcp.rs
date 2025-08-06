@@ -223,7 +223,7 @@ impl TcpServer {
         client_addr: SocketAddr,
         config: Arc<ServerConfig>,
         connection_manager: Arc<ConnectionManager>,
-        _stats: Arc<TcpStats>,
+        stats: Arc<TcpStats>,
     ) -> Result<(u64, u64)> {
         // 设置TCP选项
         if let Err(e) = Self::configure_tcp_stream(&stream) {
@@ -232,12 +232,20 @@ impl TcpServer {
 
         // 使用通用的连接处理函数
         match handle_client_connection(stream, config, connection_manager).await {
-            Ok(()) => {
-                // 这里应该返回实际传输的字节数
-                // 为了简化，返回0
-                Ok((0, 0))
+            Ok((bytes_sent, bytes_received)) => {
+                // 更新统计信息
+                stats.add_bytes_sent(bytes_sent);
+                stats.add_bytes_received(bytes_received);
+                debug!(
+                    "Connection from {} completed: {} bytes sent, {} bytes received",
+                    client_addr, bytes_sent, bytes_received
+                );
+                Ok((bytes_sent, bytes_received))
             }
-            Err(e) => Err(e),
+            Err(e) => {
+                warn!("Connection from {} failed: {}", client_addr, e);
+                Err(e)
+            }
         }
     }
 
@@ -319,7 +327,13 @@ impl TcpConnectionHandler {
 
     /// 处理连接
     pub async fn handle(&self, stream: TcpStream, _client_addr: SocketAddr) -> Result<()> {
-        handle_client_connection(stream, self.config.clone(), self.connection_manager.clone()).await
+        match handle_client_connection(stream, self.config.clone(), self.connection_manager.clone()).await {
+            Ok((_bytes_sent, _bytes_received)) => {
+                // 连接处理成功，字节统计信息已在handle_client_connection中处理
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
     }
 }
 
