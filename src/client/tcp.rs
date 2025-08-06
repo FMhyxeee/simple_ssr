@@ -230,16 +230,8 @@ impl TcpClient {
             warn!("Failed to configure TCP stream for {}: {}", client_addr, e);
         }
 
-        // 使用通用的连接处理函数
-        // TODO: 返回正确字节数
-        match handle_client_connection(stream, config, connection_manager).await {
-            Ok(_) => {
-                // 这里应该返回实际传输的字节数
-                // 为了简化，返回0
-                Ok((0, 0))
-            }
-            Err(e) => Err(e),
-        }
+        // 使用通用的连接处理函数并返回字节数统计
+        handle_client_connection(stream, config, connection_manager).await
     }
 
     /// 配置TCP流选项
@@ -363,11 +355,17 @@ impl TcpConnectionHandler {
     /// 处理连接
     pub async fn handle(&self, stream: TcpStream, client_addr: SocketAddr) -> Result<()> {
         info!("client {} connected", client_addr);
-        let _ =
-            handle_client_connection(stream, self.config.clone(), self.connection_manager.clone())
-                .await;
-
-        Ok(())
+        match handle_client_connection(stream, self.config.clone(), self.connection_manager.clone()).await {
+            Ok((bytes_sent, bytes_received)) => {
+                debug!("Connection from {} completed: {} bytes sent, {} bytes received", 
+                       client_addr, bytes_sent, bytes_received);
+                Ok(())
+            }
+            Err(e) => {
+                warn!("Connection from {} failed: {}", client_addr, e);
+                Err(e)
+            }
+        }
     }
 }
 

@@ -319,11 +319,12 @@ impl ShadowsocksClient {
 }
 
 /// 处理客户端连接
+/// 返回 (发送字节数, 接收字节数)
 pub async fn handle_client_connection(
     stream: TcpStream,
     config: Arc<ClientConfig>,
     connection_manager: Arc<ConnectionManager>,
-) -> Result<TcpStream> {
+) -> Result<(u64, u64)> {
     // 获取连接守卫
     let _guard = connection_manager
         .acquire_connection()
@@ -341,14 +342,15 @@ pub async fn handle_client_connection(
     let socks5_handler =
         Socks5ConnectionHandler::new(config.clone(), connection_manager.clone(), stats.clone());
 
-    // 处理SOCKS5连接
-    let stream = socks5_handler
-        .handle_connection(stream, client_addr)
+    // 处理SOCKS5连接并获取字节数统计
+    let (bytes_sent, bytes_received) = socks5_handler
+        .handle_connection_with_stats(stream, client_addr)
         .await
         .map_err(|e| anyhow!("SOCKS5 handling failed: {}", e))?;
 
-    debug!("Client connection from {} completed", client_addr);
-    Ok(stream)
+    debug!("Client connection from {} completed, transferred: {} sent, {} received", 
+           client_addr, bytes_sent, bytes_received);
+    Ok((bytes_sent, bytes_received))
 }
 
 /// 连接到Shadowsocks服务器

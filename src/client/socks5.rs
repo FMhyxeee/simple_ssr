@@ -210,6 +210,53 @@ impl Socks5ConnectionHandler {
         Ok(stream)
     }
 
+    /// 处理SOCKS5连接并返回传输字节数统计
+    /// 返回 (发送字节数, 接收字节数)
+    pub async fn handle_connection_with_stats(
+        &self,
+        mut stream: TcpStream,
+        client_addr: SocketAddr,
+    ) -> Result<(u64, u64)> {
+        debug!("Handling SOCKS5 connection from {} with stats", client_addr);
+
+        // 获取连接守卫
+        let _guard = self
+            .connection_manager
+            .acquire_connection()
+            .map_err(|e| anyhow!("Failed to acquire connection: {}", e))?;
+
+        self.stats.increment_connections();
+
+        // 记录处理前的字节数
+        let bytes_sent_before = self.stats.tcp_bytes_sent.load(Ordering::Relaxed);
+        let bytes_received_before = self.stats.tcp_bytes_received.load(Ordering::Relaxed);
+
+        let result = self.handle_socks5_connection(&mut stream).await;
+
+        // 计算传输的字节数
+        let bytes_sent = self.stats.tcp_bytes_sent.load(Ordering::Relaxed) - bytes_sent_before;
+        let bytes_received = self.stats.tcp_bytes_received.load(Ordering::Relaxed) - bytes_received_before;
+
+        // 更新统计信息
+        self.stats.decrement_active_connections();
+
+        match result {
+            Ok(_) => {
+                self.stats.increment_successful_connections();
+                debug!(
+                    "SOCKS5 connection from {} completed successfully, transferred: {} sent, {} received",
+                    client_addr, bytes_sent, bytes_received
+                );
+                Ok((bytes_sent, bytes_received))
+            }
+            Err(e) => {
+                self.stats.increment_failed_connections();
+                warn!("SOCKS5 connection from {} failed: {}", client_addr, e);
+                Err(e)
+            }
+        }
+    }
+
     /// 处理SOCKS5握手（仅协议协商部分）
     /// 返回目标地址，不包含数据转发
     async fn handle_socks5_handshake(&self, stream: &mut TcpStream) -> Result<Address> {
