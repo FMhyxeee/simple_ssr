@@ -436,7 +436,7 @@ impl UdpClient {
         if session.server_socket.is_none() {
             // 获取连接
             let _connection_guard = connection_manager.acquire_connection()?;
-            
+
             let server_socket = UdpSocket::bind("0.0.0.0:0")
                 .await
                 .map_err(|e| anyhow!("Failed to create server socket: {}", e))?;
@@ -713,6 +713,8 @@ mod tests {
             enable_udp: true,
             local_udp_port: Some(0), // 使用随机端口
             max_connections: 100,
+            enable_unified_port: false,
+            unified_port_config: None,
         })
     }
 
@@ -884,5 +886,4 @@ mod tests {
         let stats = client.get_stats();
         assert_eq!(stats.udp_packets, 0);
     }
-
 }

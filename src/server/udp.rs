@@ -225,7 +225,10 @@ impl UdpSessionManager {
     }
 
     /// 清理过期会话
-    pub async fn cleanup_expired_sessions(&self, connection_manager: Option<Arc<ConnectionManager>>) -> usize {
+    pub async fn cleanup_expired_sessions(
+        &self,
+        connection_manager: Option<Arc<ConnectionManager>>,
+    ) -> usize {
         let mut sessions = self.sessions.write().await;
         let initial_count = sessions.len();
         let mut expired_sessions = Vec::new();
@@ -271,7 +274,8 @@ impl UdpSessionManager {
 
             loop {
                 interval.tick().await;
-                self.cleanup_expired_sessions(connection_manager.clone()).await;
+                self.cleanup_expired_sessions(connection_manager.clone())
+                    .await;
             }
         });
     }
@@ -319,7 +323,9 @@ impl UdpServer {
         self.stats.set_start_time(Instant::now());
 
         // 启动会话清理任务
-        self.session_manager.clone().start_cleanup_task(Some(self.connection_manager.clone()));
+        self.session_manager
+            .clone()
+            .start_cleanup_task(Some(self.connection_manager.clone()));
 
         // 获取套接字的引用
         let socket = self.socket.as_ref().unwrap().clone();
@@ -348,21 +354,21 @@ impl UdpServer {
                     let stats = stats.clone();
 
                     let connection_manager_clone = connection_manager.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = Self::handle_packet(
-                        socket,
-                        client_addr,
-                        Bytes::from(buf),
-                        config,
-                        session_manager,
-                        stats,
-                        connection_manager_clone,
-                    )
-                    .await
-                    {
-                        warn!("Failed to handle UDP packet from {}: {}", client_addr, e);
-                    }
-                });
+                    tokio::spawn(async move {
+                        if let Err(e) = Self::handle_packet(
+                            socket,
+                            client_addr,
+                            Bytes::from(buf),
+                            config,
+                            session_manager,
+                            stats,
+                            connection_manager_clone,
+                        )
+                        .await
+                        {
+                            warn!("Failed to handle UDP packet from {}: {}", client_addr, e);
+                        }
+                    });
                 }
                 Err(e) => {
                     if running.load(Ordering::Relaxed) {
@@ -459,7 +465,7 @@ impl UdpServer {
         if session.target_socket.is_none() {
             // 注册新连接
             let connection_id = connection_manager.register_connection(client_addr).await?;
-            
+
             let target_socket = UdpSocket::bind("0.0.0.0:0")
                 .await
                 .map_err(|e| anyhow!("Failed to create target socket: {}", e))?;
@@ -647,6 +653,8 @@ mod tests {
             timeout: 300,
             enable_udp: true,
             max_connections: 100,
+            enable_unified_port: false,
+            unified_port_config: None,
         })
     }
 
@@ -797,5 +805,4 @@ mod tests {
         let stats = server.get_stats();
         assert_eq!(stats.udp_packets_received + stats.udp_bytes_received, 0);
     }
-
 }

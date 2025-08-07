@@ -7,77 +7,137 @@ pub mod config;
 pub mod crypto;
 pub mod protocol;
 pub mod server;
+pub mod unified;
 pub mod utils;
 
 // 重新导出主要类型
 pub use config::{ClientConfig, ServerConfig};
 pub use crypto::{CryptoContext, Method};
 pub use protocol::{Address, ShadowsocksProtocol, Socks5Server};
+pub use unified::{ProtocolType, UnifiedConfig, UnifiedListener};
 
 use anyhow::Result;
 use tracing::info;
 
 /// 运行服务端
-/// 
+///
 /// 启动Shadowsocks服务端，监听指定地址和端口
 /// 支持TCP和UDP代理（如果配置启用）
+/// 如果启用了统一端口模式，将使用统一监听器
 pub async fn run_server(config: ServerConfig) -> Result<()> {
-    info!("Starting Shadowsocks server on {}", config.server_addr()?);
-
     // 验证配置
     config.validate()?;
 
-    // 创建服务端实例
-    let mut server = server::ShadowsocksServer::new(config)?;
-    
-    // 启动服务端
-    let server_handle = tokio::spawn(async move {
-        server.run().await
-    });
+    if config.should_use_unified_port() {
+        // 统一端口模式
+        let unified_addr = config.unified_addr()?.unwrap();
+        info!(
+            "Starting Shadowsocks server in unified port mode on {}",
+            unified_addr
+        );
 
-    info!("Server started successfully");
+        let unified_config = config
+            .unified_config()
+            .cloned()
+            .unwrap_or_else(|| UnifiedConfig::new(unified_addr));
 
-    // 等待中断信号
-    tokio::signal::ctrl_c().await?;
-    info!("Server shutting down...");
+        let mut unified_listener = UnifiedListener::new(unified_config);
 
-    // 停止服务端
-    server_handle.abort();
-    let _ = server_handle.await;
+        // 启动统一监听器
+        let listener_handle = tokio::spawn(async move { unified_listener.start().await });
+
+        info!("Server started successfully in unified port mode");
+
+        // 等待中断信号
+        tokio::signal::ctrl_c().await?;
+        info!("Server shutting down...");
+
+        // 停止统一监听器
+        listener_handle.abort();
+        let _ = listener_handle.await;
+    } else {
+        // 传统模式
+        info!("Starting Shadowsocks server on {}", config.server_addr()?);
+
+        // 创建服务端实例
+        let mut server = server::ShadowsocksServer::new(config)?;
+
+        // 启动服务端
+        let server_handle = tokio::spawn(async move { server.run().await });
+
+        info!("Server started successfully");
+
+        // 等待中断信号
+        tokio::signal::ctrl_c().await?;
+        info!("Server shutting down...");
+
+        // 停止服务端
+        server_handle.abort();
+        let _ = server_handle.await;
+    }
 
     Ok(())
 }
 
 /// 运行客户端
-/// 
+///
 /// 启动Shadowsocks客户端，在本地创建SOCKS5代理
 /// 将流量转发到远程Shadowsocks服务器
+/// 如果启用了统一端口模式，将使用统一监听器
 pub async fn run_client(config: ClientConfig) -> Result<()> {
-    info!(
-        "Starting Shadowsocks client, local proxy on {}",
-        config.local_addr()?
-    );
-
     // 验证配置
     config.validate()?;
 
-    // 创建客户端实例
-    let mut client = client::ShadowsocksClient::new(config)?;
-    
-    // 启动客户端
-    let client_handle = tokio::spawn(async move {
-        client.run().await
-    });
+    if config.should_use_unified_port() {
+        // 统一端口模式
+        let unified_addr = config.unified_addr()?.unwrap();
+        info!(
+            "Starting Shadowsocks client in unified port mode, local proxy on {}",
+            unified_addr
+        );
 
-    info!("Client started successfully");
+        let unified_config = config
+            .unified_config()
+            .cloned()
+            .unwrap_or_else(|| UnifiedConfig::new(unified_addr));
 
-    // 等待中断信号
-    tokio::signal::ctrl_c().await?;
-    info!("Client shutting down...");
+        let mut unified_listener = UnifiedListener::new(unified_config);
 
-    // 停止客户端
-    client_handle.abort();
-    let _ = client_handle.await;
+        // 启动统一监听器
+        let listener_handle = tokio::spawn(async move { unified_listener.start().await });
+
+        info!("Client started successfully in unified port mode");
+
+        // 等待中断信号
+        tokio::signal::ctrl_c().await?;
+        info!("Client shutting down...");
+
+        // 停止统一监听器
+        listener_handle.abort();
+        let _ = listener_handle.await;
+    } else {
+        // 传统模式
+        info!(
+            "Starting Shadowsocks client, local proxy on {}",
+            config.local_addr()?
+        );
+
+        // 创建客户端实例
+        let mut client = client::ShadowsocksClient::new(config)?;
+
+        // 启动客户端
+        let client_handle = tokio::spawn(async move { client.run().await });
+
+        info!("Client started successfully");
+
+        // 等待中断信号
+        tokio::signal::ctrl_c().await?;
+        info!("Client shutting down...");
+
+        // 停止客户端
+        client_handle.abort();
+        let _ = client_handle.await;
+    }
 
     Ok(())
 }
@@ -152,7 +212,7 @@ mod tests {
             "test_password_123".to_string(),
             "aes-256-gcm".to_string(),
         );
-        
+
         // 设置专用UDP端口避免冲突
         client_config.local_udp_port = Some(udp_port);
 
@@ -164,7 +224,7 @@ mod tests {
         let test_server = TcpListener::bind(format!("127.0.0.1:{}", test_server_port))
             .await
             .expect("Failed to bind test server");
-        
+
         let test_server_handle = tokio::spawn(async move {
             if let Ok((mut stream, _)) = test_server.accept().await {
                 let mut buffer = [0; 1024];
@@ -176,9 +236,9 @@ mod tests {
         });
 
         // 启动Shadowsocks服务端
-        let mut server = server::ShadowsocksServer::new(server_config)
-            .expect("Failed to create server");
-        
+        let mut server =
+            server::ShadowsocksServer::new(server_config).expect("Failed to create server");
+
         let server_handle = tokio::spawn(async move {
             // 运行服务端一段时间
             let _ = timeout(Duration::from_secs(5), server.run()).await;
@@ -188,9 +248,9 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // 启动Shadowsocks客户端
-        let mut client = client::ShadowsocksClient::new(client_config)
-            .expect("Failed to create client");
-        
+        let mut client =
+            client::ShadowsocksClient::new(client_config).expect("Failed to create client");
+
         let client_handle = tokio::spawn(async move {
             // 运行客户端一段时间
             let _ = timeout(Duration::from_secs(5), client.run()).await;
@@ -203,13 +263,13 @@ mod tests {
         let test_result = timeout(Duration::from_secs(2), async {
             // 连接到客户端的SOCKS5代理
             let mut proxy_stream = TcpStream::connect(format!("127.0.0.1:{}", client_port)).await?;
-            
+
             // 发送SOCKS5握手请求
             proxy_stream.write_all(&[0x05, 0x01, 0x00]).await?; // VER, NMETHODS, METHOD
-            
+
             let mut response = [0; 2];
             proxy_stream.read_exact(&mut response).await?;
-            
+
             // 验证SOCKS5响应
             if response[0] == 0x05 && response[1] == 0x00 {
                 println!("SOCKS5 handshake successful");
@@ -217,13 +277,14 @@ mod tests {
             } else {
                 Err(anyhow::anyhow!("SOCKS5 handshake failed"))
             }
-        }).await;
+        })
+        .await;
 
         // 清理资源
         server_handle.abort();
         client_handle.abort();
         test_server_handle.abort();
-        
+
         let _ = server_handle.await;
         let _ = client_handle.await;
         let _ = test_server_handle.await;
@@ -251,12 +312,12 @@ mod tests {
     #[test]
     fn test_crypto_method_validation() {
         use crate::crypto::Method;
-        
+
         // 测试支持的加密方法
         assert!(Method::from_str("aes-128-gcm").is_ok());
         assert!(Method::from_str("aes-256-gcm").is_ok());
         assert!(Method::from_str("chacha20-poly1305").is_ok());
-        
+
         // 测试不支持的加密方法
         assert!(Method::from_str("invalid-method").is_err());
     }
@@ -264,18 +325,112 @@ mod tests {
     /// 测试密钥派生
     #[test]
     fn test_key_derivation() {
-        use crate::crypto::{derive_key, Method};
-        
+        use crate::crypto::{Method, derive_key};
+
         let password = "test_password";
         let method = Method::Aes256Gcm;
         let key = derive_key(password, method.key_len());
-        
+
         assert_eq!(key.len(), method.key_len());
         assert_ne!(key, vec![0; method.key_len()]); // 确保不是全零
     }
 
+    /// 测试统一端口配置
+    #[test]
+    fn test_unified_port_config() {
+        use crate::unified::config::UnifiedConfig;
+
+        let config = UnifiedConfig::new("127.0.0.1:8388".parse().unwrap());
+        assert!(config.validate().is_ok());
+
+        let config_with_options = UnifiedConfig::new("127.0.0.1:8388".parse().unwrap())
+            .with_detection_timeout(500)
+            .with_buffer_size(8192)
+            .with_max_connections(2048);
+
+        assert!(config_with_options.validate().is_ok());
+        assert_eq!(
+            config_with_options.detection_timeout(),
+            Duration::from_millis(500)
+        );
+        assert_eq!(config_with_options.buffer_size, 8192);
+        assert_eq!(config_with_options.max_connections, 2048);
+    }
+
+    /// 测试协议检测器
+    #[test]
+    fn test_protocol_detector() {
+        use crate::unified::ProtocolType;
+        use crate::unified::detector::ProtocolDetector;
+        use std::time::Duration;
+
+        let detector = ProtocolDetector::new(Duration::from_millis(1000), false);
+
+        // 测试SOCKS5握手检测
+        let socks5_handshake = vec![0x05, 0x01, 0x00];
+        let (protocol, confidence) = detector.detect_tcp(&socks5_handshake);
+        assert_eq!(protocol, ProtocolType::Tcp);
+        assert!(confidence > 0.8);
+
+        // 测试UDP数据包检测
+        let udp_data = vec![0x00, 0x00, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01, 0x1f, 0x90];
+        let (protocol, confidence) = detector.detect_udp(&udp_data);
+        assert_eq!(protocol, ProtocolType::Udp);
+        assert!(confidence > 0.0);
+    }
+
+    /// 测试客户端统一端口配置
+    #[test]
+    fn test_client_unified_port_config() {
+        use crate::unified::config::UnifiedConfig;
+
+        let mut config = ClientConfig::new(
+            "127.0.0.1".to_string(),
+            8388,
+            "127.0.0.1".to_string(),
+            1080,
+            "test_password".to_string(),
+            "aes-256-gcm".to_string(),
+        );
+
+        // 默认情况下统一端口应该是禁用的
+        assert!(!config.should_use_unified_port());
+
+        // 启用统一端口
+        let unified_config = UnifiedConfig::new("127.0.0.1:1080".parse().unwrap());
+        config.set_unified_config(unified_config);
+
+        assert!(config.should_use_unified_port());
+        assert!(config.unified_config().is_some());
+        assert!(config.validate().is_ok());
+    }
+
+    /// 测试服务端统一端口配置
+    #[test]
+    fn test_server_unified_port_config() {
+        use crate::unified::config::UnifiedConfig;
+
+        let mut config = ServerConfig::new(
+            "127.0.0.1".to_string(),
+            8388,
+            "test_password".to_string(),
+            "aes-256-gcm".to_string(),
+        );
+
+        // 默认情况下统一端口应该是禁用的
+        assert!(!config.should_use_unified_port());
+
+        // 启用统一端口
+        let unified_config = UnifiedConfig::new("127.0.0.1:8388".parse().unwrap());
+        config.set_unified_config(unified_config);
+
+        assert!(config.should_use_unified_port());
+        assert!(config.unified_config().is_some());
+        assert!(config.validate().is_ok());
+    }
+
     /// 端到端测试：通过客户端发送HTTPS请求到百度
-    /// 
+    ///
     /// 这个测试验证完整的Shadowsocks代理流程：
     /// 1. 启动Shadowsocks服务端
     /// 2. 启动Shadowsocks客户端（SOCKS5代理）
@@ -309,7 +464,7 @@ mod tests {
             password.to_string(),
             "aes-256-gcm".to_string(),
         );
-        
+
         // 设置专用UDP端口避免冲突
         client_config.local_udp_port = Some(udp_port);
 
@@ -318,9 +473,9 @@ mod tests {
         assert!(client_config.validate().is_ok());
 
         // 启动Shadowsocks服务端
-        let mut server = server::ShadowsocksServer::new(server_config)
-            .expect("Failed to create server");
-        
+        let mut server =
+            server::ShadowsocksServer::new(server_config).expect("Failed to create server");
+
         let server_handle = tokio::spawn(async move {
             let _ = timeout(Duration::from_secs(30), server.run()).await;
         });
@@ -329,9 +484,9 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         // 启动Shadowsocks客户端
-        let mut client = client::ShadowsocksClient::new(client_config)
-            .expect("Failed to create client");
-        
+        let mut client =
+            client::ShadowsocksClient::new(client_config).expect("Failed to create client");
+
         let client_handle = tokio::spawn(async move {
             let _ = timeout(Duration::from_secs(30), client.run()).await;
         });
@@ -343,13 +498,13 @@ mod tests {
         let test_result = timeout(Duration::from_secs(10), async {
             // 连接到SOCKS5代理
             let mut proxy_stream = TcpStream::connect(format!("127.0.0.1:{}", client_port)).await?;
-            
+
             // SOCKS5握手
             proxy_stream.write_all(&[0x05, 0x01, 0x00]).await?; // VER, NMETHODS, METHOD
-            
+
             let mut response = [0; 2];
             proxy_stream.read_exact(&mut response).await?;
-            
+
             if response[0] != 0x05 || response[1] != 0x00 {
                 return Err(anyhow::anyhow!("SOCKS5 handshake failed"));
             }
@@ -360,29 +515,37 @@ mod tests {
             connect_request.push(9); // 域名长度
             connect_request.extend_from_slice(b"baidu.com");
             connect_request.extend_from_slice(&443u16.to_be_bytes()); // 端口
-            
+
             proxy_stream.write_all(&connect_request).await?;
-            
+
             // 读取连接响应
             let mut connect_response = [0; 10]; // 最小响应长度
             proxy_stream.read_exact(&mut connect_response[..4]).await?;
-            
+
             if connect_response[0] != 0x05 || connect_response[1] != 0x00 {
-                return Err(anyhow::anyhow!("SOCKS5 connect failed: status {}", connect_response[1]));
+                return Err(anyhow::anyhow!(
+                    "SOCKS5 connect failed: status {}",
+                    connect_response[1]
+                ));
             }
 
             // 跳过地址部分（根据ATYP）
             match connect_response[3] {
-                0x01 => { // IPv4
-                    proxy_stream.read_exact(&mut connect_response[4..10]).await?;
+                0x01 => {
+                    // IPv4
+                    proxy_stream
+                        .read_exact(&mut connect_response[4..10])
+                        .await?;
                 }
-                0x03 => { // 域名
+                0x03 => {
+                    // 域名
                     let mut len_buf = [0; 1];
                     proxy_stream.read_exact(&mut len_buf).await?;
                     let mut addr_buf = vec![0; len_buf[0] as usize + 2]; // 域名 + 端口
                     proxy_stream.read_exact(&mut addr_buf).await?;
                 }
-                0x04 => { // IPv6
+                0x04 => {
+                    // IPv6
                     let mut addr_buf = [0; 18]; // 16字节IPv6 + 2字节端口
                     proxy_stream.read_exact(&mut addr_buf).await?;
                 }
@@ -393,11 +556,11 @@ mod tests {
             // 发送简单的HTTP请求（注意：这里为了测试简化，使用HTTP而不是HTTPS）
             let http_request = "GET / HTTP/1.1\r\nHost: baidu.com\r\nConnection: close\r\n\r\n";
             proxy_stream.write_all(http_request.as_bytes()).await?;
-            
+
             // 读取响应
             let mut response_buffer = Vec::new();
             let mut temp_buffer = [0; 1024];
-            
+
             // 读取响应头
             loop {
                 match timeout(Duration::from_secs(3), proxy_stream.read(&mut temp_buffer)).await {
@@ -407,13 +570,18 @@ mod tests {
                         // 检查是否收到了HTTP响应头
                         if response_buffer.len() > 12 {
                             let response_str = String::from_utf8_lossy(&response_buffer);
-                            if response_str.contains("HTTP/1.1") || response_str.contains("HTTP/1.0") {
-                                println!("Received HTTP response: {}", 
-                                    response_str.lines().next().unwrap_or("Unknown"));
+                            if response_str.contains("HTTP/1.1")
+                                || response_str.contains("HTTP/1.0")
+                            {
+                                println!(
+                                    "Received HTTP response: {}",
+                                    response_str.lines().next().unwrap_or("Unknown")
+                                );
                                 break;
                             }
                         }
-                        if response_buffer.len() > 4096 { // 防止无限读取
+                        if response_buffer.len() > 4096 {
+                            // 防止无限读取
                             break;
                         }
                     }
@@ -421,41 +589,54 @@ mod tests {
                     Err(_) => return Err(anyhow::anyhow!("Read timeout")),
                 }
             }
-            
+
             // 验证响应
             let response_str = String::from_utf8_lossy(&response_buffer);
             if response_str.contains("HTTP/1.1") || response_str.contains("HTTP/1.0") {
                 println!("✅ Successfully received HTTP response through Shadowsocks proxy!");
-                println!("Response preview: {}", 
-                    response_str.lines().take(3).collect::<Vec<_>>().join("\n"));
+                println!(
+                    "Response preview: {}",
+                    response_str.lines().take(3).collect::<Vec<_>>().join("\n")
+                );
                 Ok(())
             } else {
                 Err(anyhow::anyhow!("Invalid HTTP response received"))
             }
-        }).await;
+        })
+        .await;
 
         // 清理资源
         server_handle.abort();
         client_handle.abort();
-        
+
         let _ = server_handle.await;
         let _ = client_handle.await;
 
         // 验证测试结果
         match test_result {
             Ok(Ok(())) => {
-                println!("🎉 End-to-end test PASSED: Successfully proxied HTTPS request through Shadowsocks!");
+                println!(
+                    "🎉 End-to-end test PASSED: Successfully proxied HTTPS request through Shadowsocks!"
+                );
                 assert!(true, "End-to-end test completed successfully");
             }
             Ok(Err(e)) => {
                 println!("❌ End-to-end test failed: {}", e);
                 // 在测试环境中，网络请求可能失败，但基本功能测试已经验证
                 println!("Note: Network connectivity issues are common in test environments");
-                assert!(true, "Test infrastructure validated even if network request failed");
+                assert!(
+                    true,
+                    "Test infrastructure validated even if network request failed"
+                );
             }
             Err(_) => {
-                println!("⏰ End-to-end test timed out - this may be expected in restricted test environments");
-                assert!(true, "Test timeout is acceptable in constrained environments");
+                println!(
+                    "⏰ End-to-end test timed out - this may be expected in restricted test environments"
+                );
+                assert!(
+                    true,
+                    "Test timeout is acceptable in constrained environments"
+                );
             }
         }
     }

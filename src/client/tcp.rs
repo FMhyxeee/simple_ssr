@@ -355,10 +355,14 @@ impl TcpConnectionHandler {
     /// 处理连接
     pub async fn handle(&self, stream: TcpStream, client_addr: SocketAddr) -> Result<()> {
         info!("client {} connected", client_addr);
-        match handle_client_connection(stream, self.config.clone(), self.connection_manager.clone()).await {
+        match handle_client_connection(stream, self.config.clone(), self.connection_manager.clone())
+            .await
+        {
             Ok((bytes_sent, bytes_received)) => {
-                debug!("Connection from {} completed: {} bytes sent, {} bytes received", 
-                       client_addr, bytes_sent, bytes_received);
+                debug!(
+                    "Connection from {} completed: {} bytes sent, {} bytes received",
+                    client_addr, bytes_sent, bytes_received
+                );
                 Ok(())
             }
             Err(e) => {
@@ -432,6 +436,8 @@ mod tests {
             enable_udp: false,
             local_udp_port: Some(0),
             max_connections: 100,
+            enable_unified_port: false,
+            unified_port_config: None,
         })
     }
 

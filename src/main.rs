@@ -205,6 +205,8 @@ async fn main() -> Result<()> {
                     timeout: 300,
                     enable_udp: true,
                     max_connections: 1024,
+                    enable_unified_port: false,
+                    unified_port_config: None,
                 };
 
                 let toml_content = toml::to_string_pretty(&config)?;
@@ -225,6 +227,8 @@ async fn main() -> Result<()> {
                     enable_udp: true,
                     local_udp_port: Some(1081),
                     max_connections: 1024,
+                    enable_unified_port: false,
+                    unified_port_config: None,
                 };
 
                 let toml_content = toml::to_string_pretty(&config)?;

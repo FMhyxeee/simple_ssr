@@ -348,8 +348,10 @@ pub async fn handle_client_connection(
         .await
         .map_err(|e| anyhow!("SOCKS5 handling failed: {}", e))?;
 
-    debug!("Client connection from {} completed, transferred: {} sent, {} received", 
-           client_addr, bytes_sent, bytes_received);
+    debug!(
+        "Client connection from {} completed, transferred: {} sent, {} received",
+        client_addr, bytes_sent, bytes_received
+    );
     Ok((bytes_sent, bytes_received))
 }
 

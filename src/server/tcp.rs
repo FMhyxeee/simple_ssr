@@ -327,7 +327,9 @@ impl TcpConnectionHandler {
 
     /// 处理连接
     pub async fn handle(&self, stream: TcpStream, _client_addr: SocketAddr) -> Result<()> {
-        match handle_client_connection(stream, self.config.clone(), self.connection_manager.clone()).await {
+        match handle_client_connection(stream, self.config.clone(), self.connection_manager.clone())
+            .await
+        {
             Ok((_bytes_sent, _bytes_received)) => {
                 // 连接处理成功，字节统计信息已在handle_client_connection中处理
                 Ok(())
@@ -397,6 +399,8 @@ mod tests {
             timeout: 300,
             enable_udp: false,
             max_connections: 100,
+            enable_unified_port: false,
+            unified_port_config: None,
         })
     }
 

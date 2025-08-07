@@ -2,6 +2,7 @@
 //!
 //! 定义客户端运行所需的配置参数
 
+use crate::unified::config::UnifiedConfig;
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
@@ -33,6 +34,12 @@ pub struct ClientConfig {
     /// 最大并发连接数
     #[serde(default = "default_max_connections")]
     pub max_connections: usize,
+    /// 是否启用统一端口模式
+    #[serde(default = "default_enable_unified_port")]
+    pub enable_unified_port: bool,
+    /// 统一端口配置
+    #[serde(default)]
+    pub unified_port_config: Option<UnifiedConfig>,
 }
 
 impl ClientConfig {
@@ -56,6 +63,8 @@ impl ClientConfig {
             enable_udp: default_enable_udp(),
             local_udp_port: default_udp_port(),
             max_connections: default_max_connections(),
+            enable_unified_port: default_enable_unified_port(),
+            unified_port_config: None,
         }
     }
 
@@ -95,6 +104,40 @@ impl ClientConfig {
         }
     }
 
+    /// 获取统一端口配置
+    pub fn unified_config(&self) -> Option<&UnifiedConfig> {
+        self.unified_port_config.as_ref()
+    }
+
+    /// 设置统一端口配置
+    pub fn set_unified_config(&mut self, config: UnifiedConfig) {
+        self.unified_port_config = Some(config);
+        self.enable_unified_port = true;
+    }
+
+    /// 获取统一端口监听地址
+    pub fn unified_addr(&self) -> Result<Option<SocketAddr>> {
+        if self.enable_unified_port {
+            if let Some(config) = &self.unified_port_config {
+                Ok(Some(config.unified_addr))
+            } else {
+                // 如果启用了统一端口但没有配置，使用默认地址
+                let addr = format!("{}:{}", self.local_address, self.local_port);
+                Ok(Some(
+                    addr.parse()
+                        .map_err(|e| anyhow!("Invalid unified address: {}", e))?,
+                ))
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// 是否应该使用统一端口模式
+    pub fn should_use_unified_port(&self) -> bool {
+        self.enable_unified_port
+    }
+
     /// 验证配置有效性
     pub fn validate(&self) -> Result<()> {
         if self.password.is_empty() {
@@ -122,6 +165,16 @@ impl ClientConfig {
         self.local_addr()?;
         self.local_udp_addr()?;
 
+        // 验证统一端口配置
+        if self.enable_unified_port {
+            if let Some(config) = &self.unified_port_config {
+                config
+                    .validate()
+                    .map_err(|e| anyhow!("Invalid unified port config: {}", e))?;
+            }
+            self.unified_addr()?;
+        }
+
         Ok(())
     }
 }
@@ -139,6 +192,8 @@ impl Default for ClientConfig {
             enable_udp: default_enable_udp(),
             local_udp_port: default_udp_port(),
             max_connections: default_max_connections(),
+            enable_unified_port: default_enable_unified_port(),
+            unified_port_config: None,
         }
     }
 }
@@ -161,6 +216,11 @@ fn default_udp_port() -> Option<u16> {
 /// 默认最大连接数
 fn default_max_connections() -> usize {
     1024
+}
+
+/// 默认是否启用统一端口
+fn default_enable_unified_port() -> bool {
+    false
 }
 
 #[cfg(test)]
@@ -251,5 +311,42 @@ mod tests {
 
         let addr = config.local_udp_addr().unwrap().unwrap();
         assert_eq!(addr.to_string(), "127.0.0.1:1081");
+    }
+
+    #[test]
+    fn test_unified_port_disabled_by_default() {
+        let config = ClientConfig::default();
+        assert!(!config.should_use_unified_port());
+        assert!(config.unified_config().is_none());
+        assert!(config.unified_addr().unwrap().is_none());
+    }
+
+    #[test]
+    fn test_unified_port_with_config() {
+        use crate::unified::config::UnifiedConfig;
+
+        let mut config = ClientConfig::default();
+        let unified_config = UnifiedConfig::new("127.0.0.1:1080".parse().unwrap());
+
+        config.set_unified_config(unified_config);
+
+        assert!(config.should_use_unified_port());
+        assert!(config.unified_config().is_some());
+
+        let addr = config.unified_addr().unwrap().unwrap();
+        assert_eq!(addr.to_string(), "127.0.0.1:1080");
+    }
+
+    #[test]
+    fn test_unified_port_without_config() {
+        let mut config = ClientConfig::default();
+        config.enable_unified_port = true;
+
+        assert!(config.should_use_unified_port());
+        assert!(config.unified_config().is_none());
+
+        // 应该使用默认的本地地址和端口
+        let addr = config.unified_addr().unwrap().unwrap();
+        assert_eq!(addr.to_string(), "127.0.0.1:1080");
     }
 }

@@ -235,7 +235,8 @@ impl Socks5ConnectionHandler {
 
         // 计算传输的字节数
         let bytes_sent = self.stats.tcp_bytes_sent.load(Ordering::Relaxed) - bytes_sent_before;
-        let bytes_received = self.stats.tcp_bytes_received.load(Ordering::Relaxed) - bytes_received_before;
+        let bytes_received =
+            self.stats.tcp_bytes_received.load(Ordering::Relaxed) - bytes_received_before;
 
         // 更新统计信息
         self.stats.decrement_active_connections();
@@ -713,6 +714,8 @@ mod tests {
             enable_udp: true,
             local_udp_port: Some(0),
             max_connections: 100,
+            enable_unified_port: false,
+            unified_port_config: None,
         })
     }
 
