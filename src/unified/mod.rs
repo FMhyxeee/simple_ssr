@@ -34,6 +34,10 @@ pub enum ProtocolType {
     Tcp,
     /// UDP协议
     Udp,
+    /// HTTP代理协议
+    Http,
+    /// HTTPS代理协议
+    Https,
     /// 未知协议
     Unknown,
 }
@@ -43,6 +47,8 @@ impl std::fmt::Display for ProtocolType {
         match self {
             ProtocolType::Tcp => write!(f, "TCP"),
             ProtocolType::Udp => write!(f, "UDP"),
+            ProtocolType::Http => write!(f, "HTTP"),
+            ProtocolType::Https => write!(f, "HTTPS"),
             ProtocolType::Unknown => write!(f, "Unknown"),
         }
     }

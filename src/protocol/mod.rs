@@ -3,10 +3,12 @@
 //! 实现Shadowsocks和SOCKS5协议的处理逻辑
 
 pub mod address;
+pub mod http;
 pub mod shadowsocks;
 pub mod socks5;
 
 pub use address::{Address, AddressType};
+pub use http::HttpProxy;
 pub use shadowsocks::ShadowsocksProtocol;
 pub use socks5::{Socks5Response, Socks5Server};
 
@@ -16,6 +18,8 @@ use std::io::{Read, Write};
 /// 协议版本常量
 pub const SHADOWSOCKS_VERSION: u8 = 1;
 pub const SOCKS5_VERSION: u8 = 5;
+pub const HTTP_VERSION_1_0: &str = "HTTP/1.0";
+pub const HTTP_VERSION_1_1: &str = "HTTP/1.1";
 
 /// SOCKS5认证方法
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

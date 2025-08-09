@@ -215,6 +215,23 @@ impl Address {
             Address::DomainNameAddr(_, _) => AddressType::Domain,
         }
     }
+
+    /// 异步解析为SocketAddr
+    ///
+    /// 对于域名地址，会进行DNS解析
+    pub async fn to_socket_addr(&self) -> Result<SocketAddr> {
+        match self {
+            Address::SocketAddr(addr) => Ok(*addr),
+            Address::DomainNameAddr(domain, port) => {
+                use tokio::net::lookup_host;
+                let addr_str = format!("{}:{}", domain, port);
+                let mut addrs = lookup_host(&addr_str).await
+                    .map_err(|e| anyhow!("DNS解析失败: {}", e))?;
+                addrs.next()
+                    .ok_or_else(|| anyhow!("DNS解析未返回任何地址"))
+            }
+        }
+    }
 }
 
 impl std::fmt::Display for Address {

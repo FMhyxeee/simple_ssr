@@ -84,6 +84,22 @@ impl ProtocolDetector {
             return ProtocolType::Unknown;
         }
 
+        // 检测HTTP协议
+        if self.is_http_request(data) {
+            if self.verbose_logging {
+                debug!("检测到来自 {} 的HTTP请求", client_addr);
+            }
+            return ProtocolType::Http;
+        }
+
+        // 检测HTTPS协议（TLS握手）
+        if self.is_https_request(data) {
+            if self.verbose_logging {
+                debug!("检测到来自 {} 的HTTPS/TLS握手", client_addr);
+            }
+            return ProtocolType::Https;
+        }
+
         // 检测SOCKS5协议（通常用于TCP）
         if self.is_socks5_handshake(data) {
             if self.verbose_logging {
@@ -120,6 +136,76 @@ impl ProtocolDetector {
             debug!("无法明确识别协议，默认判定来自 {} 的数据为TCP", client_addr);
         }
         ProtocolType::Tcp
+    }
+
+    /// 检测是否为HTTP请求
+    /// 识别常见的HTTP方法：GET, POST, PUT, DELETE, HEAD, OPTIONS, PATCH, TRACE
+    fn is_http_request(&self, data: &[u8]) -> bool {
+        if data.len() < 4 {
+            return false;
+        }
+
+        // 将数据转换为字符串进行检查
+        let data_str = match std::str::from_utf8(data) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+
+        // 检查是否以HTTP方法开头
+        let http_methods = [
+            "GET ", "POST ", "PUT ", "DELETE ", "HEAD ", "OPTIONS ", "PATCH ", "TRACE ",
+        ];
+
+        for method in &http_methods {
+            if data_str.starts_with(method) {
+                // 进一步验证是否包含HTTP版本信息
+                if data_str.contains("HTTP/1.") || data_str.contains("HTTP/2") {
+                    return true;
+                }
+                // 即使没有完整的HTTP版本信息，如果有HTTP方法也认为是HTTP请求
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// 检测是否为HTTPS请求（TLS握手包）
+    /// 识别TLS ClientHello消息
+    fn is_https_request(&self, data: &[u8]) -> bool {
+        if data.len() < 6 {
+            return false;
+        }
+
+        // TLS记录格式：
+        // - 内容类型 (1字节): 0x16 表示握手
+        // - 版本 (2字节): 0x0301 (TLS 1.0), 0x0302 (TLS 1.1), 0x0303 (TLS 1.2), 0x0304 (TLS 1.3)
+        // - 长度 (2字节)
+        // - 握手类型 (1字节): 0x01 表示ClientHello
+
+        // 检查是否为TLS握手记录
+        if data[0] != 0x16 {
+            return false;
+        }
+
+        // 检查TLS版本
+        let version = u16::from_be_bytes([data[1], data[2]]);
+        if !matches!(version, 0x0301 | 0x0302 | 0x0303 | 0x0304) {
+            return false;
+        }
+
+        // 检查记录长度是否合理
+        let record_length = u16::from_be_bytes([data[3], data[4]]) as usize;
+        if record_length == 0 || record_length > 16384 {
+            return false;
+        }
+
+        // 检查是否为ClientHello消息
+        if data.len() > 5 && data[5] == 0x01 {
+            return true;
+        }
+
+        false
     }
 
     /// 检测是否为SOCKS5握手
@@ -174,6 +260,10 @@ impl ProtocolDetector {
         false
     }
 
+
+
+
+
     /// 检测TCP协议
     pub fn detect_tcp(&self, data: &[u8]) -> (ProtocolType, f32) {
         let protocol = if self.is_socks5_handshake(data) || self.is_shadowsocks_tcp(data) {
@@ -199,6 +289,29 @@ impl ProtocolDetector {
     /// 计算检测置信度
     fn calculate_confidence(&self, data: &[u8], protocol: ProtocolType) -> f32 {
         match protocol {
+            ProtocolType::Http => {
+                if self.is_http_request(data) {
+                    // 检查是否包含完整的HTTP版本信息
+                    if let Ok(data_str) = std::str::from_utf8(data) {
+                        if data_str.contains("HTTP/1.") || data_str.contains("HTTP/2") {
+                            0.95 // 包含HTTP版本信息，非常确定
+                        } else {
+                            0.85 // 只有HTTP方法，较确定
+                        }
+                    } else {
+                        0.70 // 基本确定
+                    }
+                } else {
+                    0.50 // 不确定
+                }
+            }
+            ProtocolType::Https => {
+                if self.is_https_request(data) {
+                    0.90 // TLS握手特征明确
+                } else {
+                    0.50 // 不确定
+                }
+            }
             ProtocolType::Tcp => {
                 if self.is_socks5_handshake(data) {
                     0.95 // SOCKS5握手非常明确
@@ -270,9 +383,125 @@ mod tests {
     }
 
     #[test]
+    fn test_http_detection() {
+        let detector = ProtocolDetector::new(Duration::from_secs(5), false);
+        let addr = "127.0.0.1:8080".parse().unwrap();
+
+        // 测试GET请求
+        let get_request = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
+        assert_eq!(
+            detector.detect_protocol_from_data(get_request, addr),
+            ProtocolType::Http
+        );
+
+        // 测试POST请求
+        let post_request = b"POST /api/data HTTP/1.1\r\nContent-Type: application/json\r\n\r\n";
+        assert_eq!(
+            detector.detect_protocol_from_data(post_request, addr),
+            ProtocolType::Http
+        );
+
+        // 测试不完整的HTTP请求（只有方法）
+        let partial_request = b"GET /path";
+        assert_eq!(
+            detector.detect_protocol_from_data(partial_request, addr),
+            ProtocolType::Http
+        );
+    }
+
+    #[test]
+    fn test_https_detection() {
+        let detector = ProtocolDetector::new(Duration::from_secs(5), false);
+        let addr = "127.0.0.1:8443".parse().unwrap();
+
+        // 模拟TLS 1.2 ClientHello握手包
+        let tls12_handshake = vec![
+            0x16, // 内容类型：握手
+            0x03, 0x03, // TLS 1.2版本
+            0x00, 0x20, // 记录长度
+            0x01, // 握手类型：ClientHello
+            // 后续数据...
+            0x00, 0x00, 0x1c, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00,
+        ];
+        assert_eq!(
+            detector.detect_protocol_from_data(&tls12_handshake, addr),
+            ProtocolType::Https
+        );
+
+        // 模拟TLS 1.3 ClientHello握手包
+        let tls13_handshake = vec![
+            0x16, // 内容类型：握手
+            0x03, 0x04, // TLS 1.3版本
+            0x00, 0x18, // 记录长度
+            0x01, // 握手类型：ClientHello
+            // 后续数据...
+            0x00, 0x00, 0x14, 0x03, 0x04,
+        ];
+        assert_eq!(
+            detector.detect_protocol_from_data(&tls13_handshake, addr),
+            ProtocolType::Https
+        );
+    }
+
+    #[test]
+    fn test_http_methods() {
+        let detector = ProtocolDetector::new(Duration::from_secs(5), false);
+
+        let methods = [
+            "GET /", "POST /api", "PUT /resource", "DELETE /item",
+            "HEAD /info", "OPTIONS /", "PATCH /update", "TRACE /debug"
+        ];
+
+        for method in &methods {
+            let request = method.as_bytes();
+            assert!(detector.is_http_request(request), "Failed to detect HTTP method: {}", method);
+        }
+    }
+
+    #[test]
+    fn test_tls_versions() {
+        let detector = ProtocolDetector::new(Duration::from_secs(5), false);
+
+        // 测试不同TLS版本
+        let versions = [
+            (0x03, 0x01), // TLS 1.0
+            (0x03, 0x02), // TLS 1.1
+            (0x03, 0x03), // TLS 1.2
+            (0x03, 0x04), // TLS 1.3
+        ];
+
+        for (major, minor) in &versions {
+            let tls_handshake = vec![
+                0x16, // 内容类型：握手
+                *major, *minor, // TLS版本
+                0x00, 0x10, // 记录长度
+                0x01, // 握手类型：ClientHello
+                0x00, 0x00, 0x0c, // 后续数据
+            ];
+            assert!(detector.is_https_request(&tls_handshake), 
+                   "Failed to detect TLS {}.{}", major, minor);
+        }
+    }
+
+    #[test]
     fn test_confidence_calculation() {
         let detector = ProtocolDetector::new(Duration::from_secs(5), false);
 
+        // 测试HTTP置信度
+        let http_with_version = b"GET / HTTP/1.1\r\n";
+        let confidence = detector.calculate_confidence(http_with_version, ProtocolType::Http);
+        assert!(confidence >= 0.95);
+
+        let http_without_version = b"GET /path";
+        let confidence = detector.calculate_confidence(http_without_version, ProtocolType::Http);
+        assert!(confidence >= 0.85 && confidence < 0.95);
+
+        // 测试HTTPS置信度
+        let tls_handshake = vec![0x16, 0x03, 0x03, 0x00, 0x10, 0x01];
+        let confidence = detector.calculate_confidence(&tls_handshake, ProtocolType::Https);
+        assert!(confidence >= 0.90);
+
+        // 测试其他协议
         let socks5_data = vec![0x05, 0x01, 0x00];
         let confidence = detector.calculate_confidence(&socks5_data, ProtocolType::Tcp);
         assert!(confidence > 0.9);
@@ -280,5 +509,24 @@ mod tests {
         let unknown_data = vec![0xff, 0xff, 0xff];
         let confidence = detector.calculate_confidence(&unknown_data, ProtocolType::Unknown);
         assert_eq!(confidence, 0.0);
+    }
+
+
+
+
+
+    #[test]
+    fn test_http_https_confidence() {
+        let detector = ProtocolDetector::new(Duration::from_secs(5), false);
+
+        // HTTP请求置信度测试
+        let http_data = b"GET /test HTTP/1.1\r\n";
+        let confidence = detector.calculate_confidence(http_data, ProtocolType::Http);
+        assert!(confidence >= 0.9);
+
+        // HTTPS握手置信度测试
+        let https_data = vec![0x16, 0x03, 0x03, 0x00, 0x20, 0x01];
+        let confidence = detector.calculate_confidence(&https_data, ProtocolType::Https);
+        assert!(confidence >= 0.90);
     }
 }

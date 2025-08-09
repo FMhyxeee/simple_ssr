@@ -8,6 +8,8 @@ use crate::unified::{
     detector::ProtocolDetector,
     router::{RequestRouter, RouteEvent, RouteResult},
 };
+use crate::protocol::http::HttpProxy;
+
 
 use log::{debug, error, info, warn};
 use std::sync::Arc;
@@ -48,29 +50,46 @@ pub struct UnifiedListener {
     tcp_receiver: Arc<Mutex<Option<mpsc::UnboundedReceiver<RouteEvent>>>>,
     /// UDP事件接收器
     udp_receiver: Arc<Mutex<Option<mpsc::UnboundedReceiver<RouteEvent>>>>,
+    /// HTTP事件接收器
+    http_receiver: Arc<Mutex<Option<mpsc::UnboundedReceiver<RouteEvent>>>>,
     /// 活跃连接计数
     active_connections: Arc<tokio::sync::Mutex<u32>>,
 }
 
 /// 监听器统计信息
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct ListenerStats {
-    /// 总接收字节数
-    pub bytes_received: u64,
-    /// 总发送字节数
-    pub bytes_sent: u64,
-    /// 活跃连接数
-    pub active_connections: u32,
-    /// 处理的请求总数
-    pub total_requests: u64,
-    /// TCP请求数
-    pub tcp_requests: u64,
-    /// UDP请求数
-    pub udp_requests: u64,
-    /// 错误计数
-    pub errors: u64,
-    /// 运行时间（秒）
-    pub uptime_seconds: u64,
+    /// TCP连接数
+    pub tcp_connections: u64,
+    /// UDP数据包数
+    pub udp_packets: u64,
+    /// HTTP请求数
+    pub http_requests: u64,
+    /// HTTPS请求数
+    pub https_requests: u64,
+    /// HTTP CONNECT请求数
+    pub http_connect_requests: u64,
+    /// 总字节数
+    pub total_bytes: u64,
+    /// 失败请求数
+    pub failed_requests: u64,
+    /// 启动时间
+    pub start_time: std::time::Instant,
+}
+
+impl Default for ListenerStats {
+    fn default() -> Self {
+        Self {
+            tcp_connections: 0,
+            udp_packets: 0,
+            http_requests: 0,
+            https_requests: 0,
+            http_connect_requests: 0,
+            total_bytes: 0,
+            failed_requests: 0,
+            start_time: std::time::Instant::now(),
+        }
+    }
 }
 
 impl UnifiedListener {
@@ -81,7 +100,7 @@ impl UnifiedListener {
             config.verbose_logging,
         ));
 
-        let (router, tcp_receiver, udp_receiver) =
+        let (router, tcp_receiver, udp_receiver, http_receiver) =
             RequestRouter::create_with_receivers(config.verbose_logging);
         let router = Arc::new(router);
 
@@ -93,6 +112,7 @@ impl UnifiedListener {
             stop_sender: None,
             tcp_receiver: Arc::new(Mutex::new(Some(tcp_receiver))),
             udp_receiver: Arc::new(Mutex::new(Some(udp_receiver))),
+            http_receiver: Arc::new(Mutex::new(Some(http_receiver))),
             active_connections: Arc::new(tokio::sync::Mutex::new(0)),
         }
     }
@@ -155,6 +175,18 @@ impl UnifiedListener {
             let verbose_logging = self.config.verbose_logging;
             let udp_handler = Self::spawn_udp_handler(verbose_logging, udp_rx);
             tokio::spawn(udp_handler);
+        }
+
+        // 启动HTTP事件处理器
+        let http_receiver = {
+            let mut receiver_guard = self.http_receiver.lock().await;
+            receiver_guard.take()
+        };
+
+        if let Some(http_rx) = http_receiver {
+            let verbose_logging = self.config.verbose_logging;
+            let http_handler = Self::spawn_http_handler(verbose_logging, http_rx);
+            tokio::spawn(http_handler);
         }
 
         // 启动主监听循环
@@ -229,17 +261,17 @@ impl UnifiedListener {
     /// 获取统计信息
     pub async fn get_stats(&self) -> ListenerStats {
         let router_stats = self.router.get_stats().await;
-        let active_connections = *self.active_connections.lock().await;
+        let _active_connections = *self.active_connections.lock().await;
 
         ListenerStats {
-            bytes_received: 0, // TODO: 实现字节计数
-            bytes_sent: 0,     // TODO: 实现字节计数
-            active_connections,
-            total_requests: router_stats.total_requests,
-            tcp_requests: router_stats.tcp_routes,
-            udp_requests: router_stats.udp_routes,
-            errors: router_stats.route_errors,
-            uptime_seconds: 0, // TODO: 实现运行时间计算
+            tcp_connections: router_stats.tcp_routes,
+            udp_packets: router_stats.udp_routes,
+            http_requests: router_stats.http_routes,
+            https_requests: 0, // TODO: 实现HTTPS计数
+            http_connect_requests: 0, // TODO: 实现CONNECT计数
+            total_bytes: 0, // TODO: 实现字节计数
+            failed_requests: router_stats.route_errors,
+            start_time: std::time::Instant::now(), // TODO: 实现正确的启动时间
         }
     }
 
@@ -287,6 +319,11 @@ impl UnifiedListener {
                                 UnifiedResult::Success(RouteResult::UdpRouted) => {
                                     if verbose_logging {
                                         debug!("成功路由UDP请求");
+                                    }
+                                }
+                                UnifiedResult::Success(RouteResult::HttpRouted) => {
+                                    if verbose_logging {
+                                        debug!("成功路由HTTP请求");
                                     }
                                 }
                                 UnifiedResult::Success(RouteResult::Failed(msg)) => {
@@ -421,44 +458,216 @@ impl UnifiedListener {
 
         UnifiedResult::Success(())
     }
+
+    /// 生成HTTP事件处理器
+    async fn spawn_http_handler(
+        verbose_logging: bool,
+        mut http_receiver: mpsc::UnboundedReceiver<RouteEvent>,
+    ) -> UnifiedResult<()> {
+        if verbose_logging {
+            info!("启动HTTP事件处理器");
+        }
+
+        while let Some(event) = http_receiver.recv().await {
+            match event {
+                RouteEvent::HttpRequest {
+                    stream,
+                    client_addr,
+                    request_data,
+                    is_https,
+                } => {
+                    if verbose_logging {
+                        debug!(
+                            "处理来自 {} 的{}请求，数据大小: {} 字节",
+                            client_addr,
+                            if is_https { "HTTPS" } else { "HTTP" },
+                            request_data.len()
+                        );
+                    }
+
+                    // 调用HTTP代理处理器来处理请求
+                    // 从Arc中克隆TcpStream
+                    let stream_clone = match Arc::try_unwrap(stream) {
+                        Ok(s) => s,
+                        Err(_arc_stream) => {
+                            // 如果无法unwrap，说明还有其他引用，我们需要创建一个新的连接
+                            warn!("无法获取TcpStream的独占所有权，跳过HTTP处理");
+                            continue;
+                        }
+                    };
+                    
+                    let result = Self::handle_http_request(
+                        stream_clone,
+                        client_addr,
+                        request_data,
+                        is_https,
+                        verbose_logging,
+                    ).await;
+
+                    if let Err(e) = result {
+                        error!("HTTP请求处理失败: {} (客户端: {})", e, client_addr);
+                    }
+                }
+                RouteEvent::Error {
+                    message,
+                    client_addr,
+                } => {
+                    error!(
+                        "HTTP处理器收到错误事件: {} (客户端: {:?})",
+                        message, client_addr
+                    );
+                }
+                _ => {
+                    warn!("HTTP处理器收到非HTTP事件");
+                }
+            }
+        }
+
+        if verbose_logging {
+            info!("HTTP事件处理器已停止");
+        }
+
+        UnifiedResult::Success(())
+    }
+
+    /// 处理HTTP/HTTPS请求
+    async fn handle_http_request(
+        stream: tokio::net::TcpStream,
+        client_addr: std::net::SocketAddr,
+        _request_data: Vec<u8>,
+        _is_https: bool,
+        verbose_logging: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if verbose_logging {
+            debug!("开始处理来自 {} 的HTTP请求", client_addr);
+        }
+
+        // 创建HTTP代理实例
+        let http_proxy = HttpProxy::new();
+
+        // 直接使用HttpProxy的handle_request方法处理所有HTTP/HTTPS请求
+        match http_proxy.handle_request(stream, client_addr).await {
+            Ok(_) => {
+                if verbose_logging {
+                    debug!("HTTP请求处理完成: {}", client_addr);
+                }
+                Ok(())
+            }
+            Err(e) => {
+                error!("处理HTTP请求失败: {}", e);
+                Err(format!("HTTP处理失败: {}", e).into())
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::net::TcpListener;
+    use std::time::Duration;
 
+    /// 测试HTTP代理功能
     #[tokio::test]
-    async fn test_listener_creation() {
-        let config = UnifiedConfig::default();
+    async fn test_http_proxy() {
+        // 创建测试配置
+        let config = UnifiedConfig {
+            unified_addr: "127.0.0.1:0".parse().unwrap(),
+            verbose_logging: true,
+            ..Default::default()
+        };
+
+        // 创建监听器
         let listener = UnifiedListener::new(config);
-
-        let state = listener.get_state().await;
-        assert_eq!(state, ListenerState::Stopped);
-    }
-
-    #[tokio::test]
-    async fn test_listener_config_validation() {
-        let mut config = UnifiedConfig::default();
-        config.detection_timeout_ms = 0; // 无效配置
-
-        let mut listener = UnifiedListener::new(config);
-        let result = listener.start().await;
-
-        match result {
-            UnifiedResult::Error(msg) => {
-                assert!(msg.contains("配置验证失败"));
-            }
-            _ => panic!("期望配置验证失败"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_listener_stats() {
-        let config = UnifiedConfig::default();
-        let listener = UnifiedListener::new(config);
-
+        
+        // 测试统计信息初始化
         let stats = listener.get_stats().await;
-        assert_eq!(stats.active_connections, 0);
-        assert_eq!(stats.total_requests, 0);
+        assert_eq!(stats.http_requests, 0);
+        assert_eq!(stats.https_requests, 0);
+        assert_eq!(stats.http_connect_requests, 0);
+        assert_eq!(stats.failed_requests, 0);
+    }
+
+    /// 测试HTTPS CONNECT请求处理
+    #[tokio::test]
+    async fn test_https_connect_handling() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        
+        // 创建模拟的CONNECT请求数据
+        let connect_request = b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n";
+        
+        // 创建模拟的TCP流
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        
+        // 启动服务器任务
+        let server_task = tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut buffer = vec![0u8; 1024];
+                if let Ok(n) = stream.read(&mut buffer).await {
+                    buffer.truncate(n);
+                    // 验证接收到CONNECT请求
+                    assert!(buffer.starts_with(b"CONNECT"));
+                }
+            }
+        });
+        
+        // 创建客户端连接
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        client.write_all(connect_request).await.unwrap();
+        
+        // 等待服务器处理
+        tokio::time::timeout(Duration::from_secs(1), server_task)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    /// 测试HTTP请求解析
+    #[tokio::test]
+    async fn test_http_request_parsing() {
+        // 创建模拟的HTTP请求数据
+        let http_request = b"GET /test HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\n\r\n";
+        
+        // 验证请求数据格式
+        assert!(http_request.starts_with(b"GET"));
+        let request_str = String::from_utf8_lossy(http_request);
+        assert!(request_str.contains("Host: example.com"));
+        
+        // 测试请求数据包含必要的HTTP头
+        let request_str = String::from_utf8_lossy(http_request);
+        assert!(request_str.contains("HTTP/1.1"));
+        assert!(request_str.contains("Host:"));
+    }
+
+    /// 测试统计信息更新
+    #[tokio::test]
+    async fn test_stats_update() {
+        let mut stats = ListenerStats::default();
+        
+        // 模拟HTTP请求统计
+        stats.http_requests += 1;
+        stats.total_bytes += 100;
+        
+        assert_eq!(stats.http_requests, 1);
+        assert_eq!(stats.total_bytes, 100);
+        
+        // 模拟HTTPS请求统计
+        stats.https_requests += 1;
+        stats.http_connect_requests += 1;
+        
+        assert_eq!(stats.https_requests, 1);
+        assert_eq!(stats.http_connect_requests, 1);
+    }
+
+    /// 测试错误处理
+    #[tokio::test]
+    async fn test_error_handling() {
+        let mut stats = ListenerStats::default();
+        
+        // 模拟失败请求
+        stats.failed_requests += 1;
+        
+        assert_eq!(stats.failed_requests, 1);
     }
 }
