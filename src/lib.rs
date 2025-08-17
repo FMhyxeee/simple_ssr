@@ -5,14 +5,16 @@
 pub mod client;
 pub mod config;
 pub mod crypto;
+pub mod multi_app;
 pub mod protocol;
 pub mod server;
 pub mod unified;
 pub mod utils;
 
 // 重新导出主要类型
-pub use config::{ClientConfig, ServerConfig};
+pub use config::{ClientConfig, ServerConfig, MultiProtocolConfig};
 pub use crypto::{CryptoContext, Method};
+pub use multi_app::{MultiProtocolApp, run_multi_protocol_app};
 pub use protocol::{Address, ShadowsocksProtocol, Socks5Server};
 pub use unified::{ProtocolType, UnifiedConfig, UnifiedListener};
 

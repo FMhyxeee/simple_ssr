@@ -4,13 +4,17 @@
 
 pub mod address;
 pub mod http;
+pub mod manager;
 pub mod shadowsocks;
 pub mod socks5;
+pub mod traits;
+pub mod vmess;
 
 pub use address::{Address, AddressType};
 pub use http::HttpProxy;
 pub use shadowsocks::ShadowsocksProtocol;
 pub use socks5::{Socks5Response, Socks5Server};
+pub use traits::{ProtocolConfig, ProtocolHandler, ProtocolClient, ProtocolFactory, ProtocolRegistry, ProxyConfig, ProtocolType};
 
 use anyhow::Result;
 use std::io::{Read, Write};

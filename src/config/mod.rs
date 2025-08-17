@@ -3,9 +3,11 @@
 //! 提供服务端和客户端的配置结构和解析功能
 
 pub mod client;
+pub mod multi;
 pub mod server;
 
 pub use client::ClientConfig;
+pub use multi::MultiProtocolConfig;
 pub use server::ServerConfig;
 
 use anyhow::Result;
