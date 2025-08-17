@@ -349,6 +349,8 @@ pub fn calculate_packet_overhead(address: &Address, crypto: &CryptoContext) -> u
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
     use crate::crypto::{Method, derive_key};
 

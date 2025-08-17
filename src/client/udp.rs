@@ -694,6 +694,8 @@ impl Default for UdpClientBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
     use crate::client::ConnectionManager;
     use crate::config::ClientConfig;

@@ -240,7 +240,7 @@ mod tests {
     fn test_unified_port_with_config() {
         use crate::unified::config::UnifiedConfig;
 
-        let config = ServerConfig {
+        let mut config = ServerConfig {
             password: "test_password".to_string(),
             ..Default::default()
         };

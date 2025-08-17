@@ -1,6 +1,6 @@
-//! Simple SSR - Shadowsocks 实现
+//! Simple Proxy - 多协议代理实现
 //!
-//! 一个用Rust实现的Shadowsocks代理系统，支持TCP和UDP协议
+//! 一个用Rust实现的多协议代理系统，支持Shadowsocks、SOCKS5、HTTP/HTTPS代理
 
 pub mod client;
 pub mod config;
@@ -152,6 +152,7 @@ pub fn init_logger() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};

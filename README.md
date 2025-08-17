@@ -1,4 +1,4 @@
-# Simple SSR - 多协议代理实现
+# Simple Proxy - 多协议代理实现
 
 一个高性能、安全的多协议代理实现，使用 Rust 语言开发，支持 Shadowsocks、SOCKS5、HTTP/HTTPS 代理。
 
@@ -19,8 +19,8 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/FMhyxeee/simple_ssr.git
-cd simple_ssr
+git clone https://github.com/FMhyxeee/simple_proxy.git
+cd simple_proxy
 
 # 编译
 cargo build --release
@@ -32,10 +32,10 @@ cargo build --release
 
 ```bash
 # 生成服务端配置
-./target/release/simple_ssr generate-config --type server > server.json
+./target/release/simple_proxy generate-config --type server > server.json
 
 # 生成客户端配置
-./target/release/simple_ssr generate-config --type client > client.json
+./target/release/simple_proxy generate-config --type client > client.json
 ```
 
 #### 服务端配置示例
@@ -83,13 +83,13 @@ cargo build --release
 #### 启动服务端
 
 ```bash
-./target/release/simple_ssr server -c server.json
+./target/release/simple_proxy server -c server.json
 ```
 
 #### 启动客户端
 
 ```bash
-./target/release/simple_ssr client -c client.json
+./target/release/simple_proxy client -c client.json
 ```
 
 ### 使用代理
@@ -165,13 +165,13 @@ LdnsConfig {
 
 ```bash
 # 使用系统解析器测试域名解析
-./simple_ssr test-dns -d google.com -p 443
+./simple_proxy test-dns -d google.com -p 443
 
 # 使用LDNS解析器测试域名解析
-./simple_ssr test-dns -d google.com -p 443 --ldns
+./simple_proxy test-dns -d google.com -p 443 --ldns
 
 # 显示详细统计信息和性能对比
-./simple_ssr test-dns -d google.com -p 443 --ldns -v
+./simple_proxy test-dns -d google.com -p 443 --ldns -v
 ```
 
 ### 性能优势
@@ -210,17 +210,17 @@ LdnsConfig {
 
 ```bash
 # 查看帮助
-./simple_ssr --help
+./simple_proxy --help
 
 # 启动服务端
-./simple_ssr server [OPTIONS]
+./simple_proxy server [OPTIONS]
   -c, --config <FILE>    配置文件路径
   -p, --port <PORT>      覆盖配置文件中的端口
   --password <PASSWORD>  覆盖配置文件中的密码
   --method <METHOD>      覆盖配置文件中的加密方法
 
 # 启动客户端
-./simple_ssr client [OPTIONS]
+./simple_proxy client [OPTIONS]
   -c, --config <FILE>    配置文件路径
   -s, --server <ADDR>    服务器地址
   -p, --port <PORT>      服务器端口
@@ -229,11 +229,11 @@ LdnsConfig {
   --method <METHOD>      加密方法
 
 # 生成配置模板
-./simple_ssr generate-config --type <TYPE>
+./simple_proxy generate-config --type <TYPE>
   --type <TYPE>          配置类型 (server|client)
 
 # DNS解析测试
-./simple_ssr test-dns [OPTIONS]
+./simple_proxy test-dns [OPTIONS]
   -d, --domain <DOMAIN>  要解析的域名
   -p, --port <PORT>      目标端口 (默认: 80)
   --ldns                 使用LDNS解析器 (默认: 系统解析器)
@@ -419,7 +419,7 @@ netstat -tlnp | grep :8389  # 统一端口
 netstat -tlnp | grep :8080  # HTTP 代理端口
 
 # 进程监控
-top -p $(pgrep simple_ssr)
+top -p $(pgrep simple_proxy)
 
 # 网络流量监控
 iftop -i eth0
@@ -432,8 +432,8 @@ curl -x http://127.0.0.1:8080 https://httpbin.org/ip
 echo "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n" | nc 127.0.0.1 8389
 
 # DNS解析测试
-./simple_ssr test-dns -d google.com --ldns -v
-./simple_ssr test-dns -d github.com -p 443 --ldns
+./simple_proxy test-dns -d google.com --ldns -v
+./simple_proxy test-dns -d github.com -p 443 --ldns
 nslookup google.com
 dig google.com @8.8.8.8
 ```

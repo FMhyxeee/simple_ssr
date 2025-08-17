@@ -637,6 +637,8 @@ impl Default for UdpServerBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
     use crate::config::ServerConfig;
     use crate::crypto::Method;

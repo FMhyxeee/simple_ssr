@@ -797,7 +797,7 @@ impl UdpAssociation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
+    use std::{io::Cursor, str::FromStr};
 
     #[test]
     fn test_auth_method_conversion() {

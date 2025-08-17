@@ -4,17 +4,17 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use simple_ssr::config::load_config_from_file;
-use simple_ssr::utils::address::{
+use simple_proxy::config::load_config_from_file;
+use simple_proxy::utils::address::{
     ResolverType, resolve_domain_with_ldns, resolve_domain_with_resolver,
 };
-use simple_ssr::{ClientConfig, ServerConfig, init_logger, run_client, run_server};
+use simple_proxy::{ClientConfig, ServerConfig, init_logger, run_client, run_server};
 use tracing::{error, info};
 
-/// Shadowsocks 命令行工具
+/// Simple Proxy 命令行工具
 #[derive(Parser)]
-#[command(name = "simple-ssr")]
-#[command(about = "A Shadowsocks implementation in Rust")]
+#[command(name = "simple-proxy")]
+#[command(about = "A multi-protocol proxy implementation in Rust")]
 #[command(version = "0.1.0")]
 struct Cli {
     #[command(subcommand)]
@@ -282,7 +282,7 @@ async fn main() -> Result<()> {
                         if verbose {
                             // 显示缓存统计信息
                             if let Ok(resolver) =
-                                simple_ssr::utils::dns::get_global_resolver().await
+                                simple_proxy::utils::dns::get_global_resolver().await
                             {
                                 let stats = resolver.get_stats();
                                 info!("Cache statistics:");
@@ -359,7 +359,7 @@ mod tests {
     #[test]
     fn test_server_command_parsing() {
         let args = vec![
-            "simple-ssr",
+            "simple-proxy",
             "server",
             "--config",
             "test.toml",
@@ -396,7 +396,7 @@ mod tests {
     #[test]
     fn test_client_command_parsing() {
         let args = vec![
-            "simple-ssr",
+            "simple-proxy",
             "client",
             "--config",
             "client.toml",
@@ -441,7 +441,7 @@ mod tests {
     #[test]
     fn test_test_dns_command_parsing() {
         let args = vec![
-            "simple-ssr",
+            "simple-proxy",
             "test-dns",
             "--domain",
             "example.com",
@@ -494,7 +494,7 @@ mod tests {
     #[test]
     fn test_gen_config_command_parsing() {
         let args = vec![
-            "simple-ssr",
+            "simple-proxy",
             "gen-config",
             "server",
             "--output",
