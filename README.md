@@ -1,17 +1,19 @@
 # Simple Proxy - 多协议代理实现
 
-一个高性能、安全的多协议代理实现，使用 Rust 语言开发，支持 Shadowsocks、SOCKS5、HTTP/HTTPS 代理。
+一个高性能、安全的多协议代理实现，使用 Rust 语言开发，支持 Shadowsocks、VMess、SOCKS5、HTTP/HTTPS 代理。
 
 ## 特性
 
 - 🚀 **高性能**: 基于 Tokio 异步运行时，支持高并发
 - 🔒 **安全加密**: 支持 AES-128-GCM、AES-256-GCM、ChaCha20-Poly1305
-- 🌐 **全协议支持**: TCP、UDP、SOCKS5、HTTP/HTTPS 代理
+- 🌐 **全协议支持**: Shadowsocks、VMess、SOCKS5、HTTP/HTTPS 代理
 - 🔄 **统一端口**: 智能协议检测，单端口支持多协议
 - 🧬 **智能DNS解析**: 内置LDNS解析器，支持LRU缓存和高性能域名解析
 - 📊 **实时监控**: 连接统计、流量监控、性能指标
-- 🛠️ **易于配置**: JSON/YAML 配置文件，命令行参数
+- 🛠️ **易于配置**: TOML 配置文件，命令行参数
 - 🔧 **模块化设计**: 清晰的代码结构，易于扩展
+- 🏗️ **多协议架构**: 抽象协议接口，支持动态协议注册
+- 📈 **可扩展性**: 基于Trait的协议工厂模式，易于添加新协议
 
 ## 快速开始
 
@@ -32,50 +34,88 @@ cargo build --release
 
 ```bash
 # 生成服务端配置
-./target/release/simple_proxy generate-config --type server > server.json
+./target/release/simple_proxy generate-config server --output server.toml
 
 # 生成客户端配置
-./target/release/simple_proxy generate-config --type client > client.json
+./target/release/simple_proxy generate-config client --output client.toml
+
+# 生成完整配置模板
+./target/release/simple_proxy generate-config template --with-examples --output config.toml
 ```
 
 #### 服务端配置示例
 
-```json
-{
-  "server_addr": "0.0.0.0",
-  "server_port": 8388,
-  "password": "your_secure_password",
-  "method": "aes-256-gcm",
-  "timeout": 300,
-  "udp_enabled": true,
-  "max_connections": 1000,
-  "unified_port": {
-    "enabled": true,
-    "port": 8389,
-    "protocols": ["shadowsocks", "socks5", "http", "https"]
-  }
-}
+```toml
+[global]
+mode = "server"
+timeout = 300
+max_connections = 1024
+buffer_size = 8192
+enable_udp = true
+enable_unified_port = true
+
+[global.unified_port]
+listen_addr = "0.0.0.0:443"
+detection_timeout = 1000
+auto_detect = true
+supported_protocols = ["shadowsocks", "vmess", "socks5", "http"]
+
+[instances.shadowsocks-server]
+protocol = "shadowsocks"
+name = "shadowsocks-server"
+listen_addr = "0.0.0.0:8388"
+password = "your_secure_password"
+method = "aes-256-gcm"
+enabled = true
+timeout = 300
+
+[instances.vmess-server]
+protocol = "vmess"
+name = "vmess-server"
+listen_addr = "0.0.0.0:10086"
+user_id = "b831381d-6324-4d53-ad4f-8cda48b30811"
+alter_id = 0
+security = "aes-128-gcm"
+enabled = true
+
+[[routes]]
+name = "local-direct"
+source = "127.0.0.1:*"
+target_instance = "socks5-proxy"
+priority = 100
+
+[logging]
+level = "info"
+console = true
+format = "text"
 ```
 
 #### 客户端配置示例
 
-```json
-{
-  "server_addr": "your_server_ip",
-  "server_port": 8388,
-  "local_addr": "127.0.0.1",
-  "local_port": 1080,
-  "password": "your_secure_password",
-  "method": "aes-256-gcm",
-  "timeout": 300,
-  "udp_enabled": true,
-  "udp_local_port": 1081,
-  "max_connections": 100,
-  "http_proxy": {
-    "enabled": true,
-    "port": 8080
-  }
-}
+```toml
+[global]
+mode = "client"
+timeout = 300
+max_connections = 1024
+buffer_size = 8192
+enable_udp = true
+
+[instances.socks5-client]
+protocol = "socks5"
+name = "socks5-client"
+listen_addr = "127.0.0.1:1080"
+auth = false
+enabled = true
+
+[instances.vmess-client]
+protocol = "vmess"
+name = "vmess-client"
+listen_addr = "127.0.0.1:1081"
+user_id = "b831381d-6324-4d53-ad4f-8cda48b30811"
+alter_id = 0
+security = "aes-128-gcm"
+server_addr = "your_server_ip:10086"
+enabled = true
 ```
 
 ### 运行
@@ -83,13 +123,25 @@ cargo build --release
 #### 启动服务端
 
 ```bash
-./target/release/simple_proxy server -c server.json
+./target/release/simple_proxy start --config server.toml
 ```
 
 #### 启动客户端
 
 ```bash
-./target/release/simple_proxy client -c client.json
+./target/release/simple_proxy start --config client.toml
+```
+
+#### 验证配置
+
+```bash
+./target/release/simple_proxy validate --config config.toml
+```
+
+#### 查看状态
+
+```bash
+./target/release/simple_proxy status --config config.toml
 ```
 
 ### 使用代理
@@ -97,9 +149,9 @@ cargo build --release
 客户端启动后，可以通过以下方式使用代理：
 
 - **SOCKS5 代理**: `127.0.0.1:1080`
-- **UDP 代理**: `127.0.0.1:1081`
+- **VMess 代理**: `127.0.0.1:1081`
 - **HTTP 代理**: `127.0.0.1:8080`
-- **统一端口**: `127.0.0.1:8389` (自动检测协议类型)
+- **统一端口**: `127.0.0.1:443` (自动检测协议类型)
 
 #### HTTP/HTTPS 代理使用
 
@@ -120,6 +172,7 @@ export https_proxy=http://127.0.0.1:8080
 | 协议 | 类型 | 特性 | 用途 |
 |------|------|------|------|
 | Shadowsocks | 加密代理 | 高安全性，抗检测 | 突破网络限制 |
+| VMess | 加密代理 | UUID认证，多种加密 | 现代代理协议 |
 | SOCKS5 | 通用代理 | 标准协议，兼容性好 | 应用程序代理 |
 | HTTP | 明文代理 | 简单易用，广泛支持 | Web 浏览代理 |
 | HTTPS | 加密代理 | CONNECT 隧道 | 安全 Web 代理 |
@@ -181,6 +234,60 @@ LdnsConfig {
 - **智能TTL**: 根据DNS记录的TTL自动管理缓存过期
 - **统计监控**: 实时监控解析性能和缓存效率
 
+## 多协议架构
+
+本项目采用现代化的多协议架构设计，基于抽象接口和工厂模式，支持动态协议注册和管理。
+
+### 核心架构组件
+
+#### 协议抽象接口
+- **ProtocolHandler**: 协议处理器接口，处理入站连接
+- **ProtocolClient**: 协议客户端接口，处理出站连接  
+- **ProtocolFactory**: 协议工厂接口，动态创建处理器和客户端
+- **ProtocolConfig**: 协议配置接口，统一配置管理
+
+#### 协议管理器
+- **ProtocolManager**: 统一管理多个协议实例的生命周期
+- **ProtocolRegistry**: 协议注册表，支持动态协议注册
+- **ProtocolRouter**: 协议路由器，根据规则分发流量
+
+#### 配置系统
+- **MultiProtocolConfig**: 统一的多协议配置管理
+- **协议实例配置**: 支持不同协议的特定配置
+- **路由规则**: 灵活的流量路由和分发策略
+
+### VMess 协议实现
+
+完整的 VMess 协议支持，包括：
+
+#### 认证机制
+- **UUID认证**: 基于 UUID 的用户身份验证
+- **时间戳验证**: 防止重放攻击
+- **HMAC签名**: 请求完整性验证
+
+#### 加密支持
+- **AES-128-GCM**: 高性能加密
+- **AES-256-GCM**: 高安全性加密
+- **ChaCha20-Poly1305**: 移动设备优化加密
+
+#### 连接管理
+- **TCP代理**: 完整的 TCP 连接代理
+- **地址处理**: 支持 IPv4、IPv6、域名地址
+- **错误处理**: 完善的错误处理和日志记录
+
+### 协议扩展性
+
+#### 添加新协议
+1. 实现 `ProtocolHandler`、`ProtocolClient`、`ProtocolFactory` trait
+2. 创建协议特定的配置结构
+3. 在协议注册表中注册新协议
+4. 更新配置系统支持新协议类型
+
+#### 动态管理
+- **运行时注册**: 支持运行时动态注册新协议
+- **实例管理**: 独立的协议实例生命周期管理
+- **状态监控**: 实时监控协议实例状态和性能
+
 ## 统一端口功能
 
 统一端口功能允许在单个端口上同时支持多种协议，通过智能检测自动识别客户端使用的协议类型。
@@ -191,53 +298,96 @@ LdnsConfig {
 - **HTTPS 检测**: 识别 TLS 握手包和 CONNECT 方法
 - **SOCKS5 检测**: 识别 SOCKS5 握手包（版本号 0x05）
 - **Shadowsocks 检测**: 基于数据包特征和地址类型检测
+- **VMess 检测**: 识别 VMess 协议头和版本信息
 
 ### 配置示例
 
-```json
-{
-  "unified_port": {
-    "enabled": true,
-    "port": 8389,
-    "protocols": ["shadowsocks", "socks5", "http", "https"],
-    "detection_timeout": 5000,
-    "verbose_logging": false
-  }
-}
+```toml
+[global.unified_port]
+listen_addr = "0.0.0.0:443"
+detection_timeout = 1000
+auto_detect = true
+supported_protocols = ["shadowsocks", "vmess", "socks5", "http"]
 ```
+
+### VMess 配置示例
+
+#### 服务端配置
+```toml
+[instances.vmess-server]
+protocol = "vmess"
+name = "vmess-server"
+listen_addr = "0.0.0.0:10086"
+user_id = "b831381d-6324-4d53-ad4f-8cda48b30811"
+alter_id = 0
+security = "aes-128-gcm"
+enabled = true
+```
+
+#### 客户端配置
+```toml
+[instances.vmess-client]
+protocol = "vmess"
+name = "vmess-client"
+listen_addr = "127.0.0.1:1081"
+user_id = "b831381d-6324-4d53-ad4f-8cda48b30811"
+alter_id = 0
+security = "aes-128-gcm"
+server_addr = "your_server_ip:10086"
+enabled = true
+```
+
+#### VMess URL分享格式
+```
+vmess://YWJjZDEyMzQtYWJjZC0xMjM0LWFiY2QtMTIzNDU2Nzg5MABAY3liZXItZXhhbXBsZS5jb206NDQzP2FsdGVySWQ9MCZzZWN1cml0eT1hZXMtMTI4LWdjbSZ0eXBlPXRjcCZob3N0PWN5YmVyLWV4YW1wbGUuY29tJnBhdGg9L3ZtZXNz
+```
+
+解码后包含：
+- 用户ID (UUID)
+- 服务器地址和端口
+- 额外ID (alterId)
+- 安全类型
+- 网络类型 (tcp)
+- 主机头和路径 (WebSocket模式)
 
 ## 命令行选项
 
 ```bash
 # 查看帮助
-./simple_proxy --help
+./simple-proxy --help
 
-# 启动服务端
-./simple_proxy server [OPTIONS]
-  -c, --config <FILE>    配置文件路径
-  -p, --port <PORT>      覆盖配置文件中的端口
-  --password <PASSWORD>  覆盖配置文件中的密码
-  --method <METHOD>      覆盖配置文件中的加密方法
+# 启动多协议代理
+./simple-proxy start [OPTIONS]
+  -c, --config <FILE>         配置文件路径 (默认: config.toml)
+  --validate                  验证配置但不启动
+  --log-level <LEVEL>        日志级别 (默认: info)
 
-# 启动客户端
-./simple_proxy client [OPTIONS]
-  -c, --config <FILE>    配置文件路径
-  -s, --server <ADDR>    服务器地址
-  -p, --port <PORT>      服务器端口
-  -l, --local-port <PORT> 本地端口
-  --password <PASSWORD>  密码
-  --method <METHOD>      加密方法
+# 生成配置文件
+./simple-proxy generate-config [OPTIONS]
+  <config_type>              配置类型 (server|client|template)
+  -o, --output <FILE>        输出文件路径
+  --with-examples            包含示例配置
 
-# 生成配置模板
-./simple_proxy generate-config --type <TYPE>
-  --type <TYPE>          配置类型 (server|client)
+# 验证配置文件
+./simple-proxy validate [OPTIONS]
+  -c, --config <FILE>        配置文件路径 (默认: config.toml)
+
+# 查看协议状态
+./simple-proxy status [OPTIONS]
+  -c, --config <FILE>        配置文件路径 (默认: config.toml)
+
+# 管理协议实例
+./simple-proxy manage [OPTIONS]
+  list [-c <FILE>]           列出所有协议实例
+  start [-c <FILE>] <instance> 启动指定实例
+  stop [-c <FILE>] <instance>  停止指定实例
 
 # DNS解析测试
-./simple_proxy test-dns [OPTIONS]
-  -d, --domain <DOMAIN>  要解析的域名
-  -p, --port <PORT>      目标端口 (默认: 80)
-  --ldns                 使用LDNS解析器 (默认: 系统解析器)
-  -v, --verbose          显示详细信息和性能统计
+./simple-proxy test-dns [OPTIONS]
+  -d, --domain <DOMAIN>      要解析的域名
+  -p, --port <PORT>          目标端口 (默认: 80)
+  --ldns                     使用LDNS解析器 (默认: 系统解析器)
+  -v, --verbose              显示详细信息和性能统计
 ```
 
 ## 性能优化
@@ -292,13 +442,18 @@ RUST_LOG=debug ./simple_ssr client -c config.json
 ### 主要依赖
 
 - `tokio` - 异步运行时
-- `serde` - 序列化/反序列化
+- `serde` / `toml` - 序列化/反序列化
 - `trust-dns-resolver` - DNS解析器
 - `lru` - LRU缓存实现
 - `aes-gcm` / `chacha20poly1305` - 加密算法
+- `uuid` - UUID生成和解析
+- `async-trait` - 异步trait支持
 - `clap` - 命令行参数解析
 - `anyhow` / `thiserror` - 错误处理
 - `tracing` / `log` - 日志记录
+- `hmac` / `sha2` - 哈希消息认证码
+- `regex` - 正则表达式支持
+- `ipnetwork` - IP网络操作
 
 ### 开发构建
 
@@ -322,9 +477,16 @@ cargo clippy
 src/
 ├── lib.rs              # 库入口
 ├── main.rs             # 主程序
+├── multi_app.rs        # 多协议应用程序
 ├── config/             # 配置管理
+│   ├── mod.rs          # 配置模块导出
+│   └── multi.rs        # 多协议配置管理
 ├── crypto/             # 加密模块
 ├── protocol/           # 协议实现
+│   ├── mod.rs          # 协议模块导出
+│   ├── traits.rs       # 协议抽象接口
+│   ├── manager.rs      # 协议管理器
+│   ├── vmess.rs        # VMess 协议
 │   ├── shadowsocks.rs  # Shadowsocks 协议
 │   ├── socks5.rs       # SOCKS5 协议
 │   ├── http.rs         # HTTP/HTTPS 协议
