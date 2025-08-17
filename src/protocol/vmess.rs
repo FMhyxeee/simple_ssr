@@ -17,7 +17,7 @@ use crate::protocol::traits::{ProtocolClient, ProtocolConfig, ProtocolFactory, P
 use crate::protocol::traits::BoxAsyncRead;
 use crate::protocol::address::Address;
 
-type HmacSha256 = Hmac<Sha256>;
+// type HmacSha256 = Hmac<Sha256>;
 
 /// VMess协议版本
 pub const VMESS_VERSION: u8 = 1;
@@ -196,6 +196,7 @@ pub struct VmessResponse {
 pub struct VmessHandler {
     config: VmessConfig,
     security: VmessSecurity,
+    #[allow(dead_code)]
     connections: HashMap<u64, TcpStream>,
 }
 
@@ -219,6 +220,7 @@ impl VmessHandler {
     }
 
     /// 生成请求ID
+    #[allow(dead_code)]
     fn generate_request_id(&self) -> u64 {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -254,15 +256,16 @@ impl VmessHandler {
     }
 
     /// 生成认证信息
+    #[allow(dead_code)]
     fn generate_auth(&self, request_id: u64, timestamp: u64) -> Vec<u8> {
-        let mut mac = HmacSha256::new_from_slice(self.security.user_id.as_bytes()).unwrap();
+        let mut mac = Hmac::<Sha256>::new_from_slice(self.security.user_id.as_bytes()).unwrap();
         mac.update(&request_id.to_be_bytes());
         mac.update(&timestamp.to_be_bytes());
         mac.finalize().into_bytes().to_vec()
     }
 
     /// 解析VMess请求
-    async fn parse_request(&self, mut stream: &mut TcpStream) -> Result<VmessRequest> {
+    async fn parse_request(&self, stream: &mut TcpStream) -> Result<VmessRequest> {
         // 读取版本
         let version = stream.read_u8().await?;
         
@@ -292,7 +295,7 @@ impl VmessHandler {
         };
         
         // 读取地址
-        let address = self.read_address(&mut stream).await?;
+        let address = self.read_address(stream).await?;
         
         let request = VmessRequest {
             version,
@@ -342,6 +345,7 @@ impl VmessHandler {
     }
 
     /// 写入地址
+    #[allow(dead_code)]
     async fn write_address(&self, stream: &mut TcpStream, address: &Address) -> Result<()> {
         match address {
             Address::SocketAddr(addr) => {
@@ -568,6 +572,7 @@ impl VmessClient {
     }
 
     /// 写入地址
+    #[allow(dead_code)]
     async fn write_address(&self, stream: &mut TcpStream, address: &Address) -> Result<()> {
         match address {
             Address::SocketAddr(addr) => {

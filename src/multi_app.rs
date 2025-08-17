@@ -458,7 +458,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_config_generation() {
-        let app = MultiProtocolApp::new();
+        let _app = MultiProtocolApp::new();
         
         // 测试生成服务器配置
         let config = MultiProtocolConfig::default_server();

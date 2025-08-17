@@ -183,10 +183,9 @@ impl ProtocolManager {
 
         // 停止协议处理器
         let mut handlers = self.handlers.lock().await;
-        if let Some(mut handler) = handlers.remove(instance_id) {
-            if let Err(e) = handler.stop_server().await {
-                error!("Error stopping protocol handler {}: {}", instance_id, e);
-            }
+        if let Some(mut handler) = handlers.remove(instance_id)
+            && let Err(e) = handler.stop_server().await {
+            error!("Error stopping protocol handler {}: {}", instance_id, e);
         }
 
         // 更新实例状态
@@ -309,11 +308,10 @@ impl ProtocolManager {
         let mut failed_instances = Vec::new();
 
         for (instance_id, instance) in instances.iter() {
-            if instance.config.protocol_type() != ProtocolType::HTTP && instance.enabled {
-                if let Err(e) = self.start_instance(instance_id).await {
-                    error!("Failed to start instance {}: {}", instance_id, e);
-                    failed_instances.push(instance_id.clone());
-                }
+            if instance.config.protocol_type() != ProtocolType::HTTP && instance.enabled
+                && let Err(e) = self.start_instance(instance_id).await {
+                error!("Failed to start instance {}: {}", instance_id, e);
+                failed_instances.push(instance_id.clone());
             }
         }
 
@@ -330,11 +328,10 @@ impl ProtocolManager {
         let mut failed_instances = Vec::new();
 
         for (instance_id, instance) in instances.iter() {
-            if instance.is_running {
-                if let Err(e) = self.stop_instance(instance_id).await {
-                    error!("Failed to stop instance {}: {}", instance_id, e);
-                    failed_instances.push(instance_id.clone());
-                }
+            if instance.is_running
+                && let Err(e) = self.stop_instance(instance_id).await {
+                error!("Failed to stop instance {}: {}", instance_id, e);
+                failed_instances.push(instance_id.clone());
             }
         }
 
@@ -369,6 +366,7 @@ pub struct ProtocolManagerStats {
 /// 根据配置将流量路由到不同的协议实例
 pub struct ProtocolRouter {
     /// 协议管理器
+    #[allow(dead_code)]
     manager: Arc<ProtocolManager>,
     
     /// 路由规则
@@ -450,17 +448,15 @@ impl RouteRule {
     /// 检查规则是否匹配给定的连接
     pub fn matches(&self, client_addr: std::net::SocketAddr, target_addr: std::net::SocketAddr) -> bool {
         // 检查源地址模式
-        if let Some(ref source_pattern) = self.source_pattern {
-            if !self.addr_matches_pattern(client_addr, source_pattern) {
-                return false;
-            }
+        if let Some(ref source_pattern) = self.source_pattern
+            && !self.addr_matches_pattern(client_addr, source_pattern) {
+            return false;
         }
 
         // 检查目标地址模式
-        if let Some(ref target_pattern) = self.target_pattern {
-            if !self.addr_matches_pattern(target_addr, target_pattern) {
-                return false;
-            }
+        if let Some(ref target_pattern) = self.target_pattern
+            && !self.addr_matches_pattern(target_addr, target_pattern) {
+            return false;
         }
 
         true

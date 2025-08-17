@@ -11,7 +11,7 @@ use tokio::fs;
 use crate::protocol::traits::ProtocolType;
 
 /// 多协议配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MultiProtocolConfig {
     /// 全局配置
     pub global: GlobalConfig,
@@ -278,16 +278,6 @@ pub enum LogFormat {
     Compact,
 }
 
-impl Default for MultiProtocolConfig {
-    fn default() -> Self {
-        Self {
-            global: GlobalConfig::default(),
-            instances: HashMap::new(),
-            routes: Vec::new(),
-            logging: LoggingConfig::default(),
-        }
-    }
-}
 
 impl Default for GlobalConfig {
     fn default() -> Self {
@@ -764,8 +754,8 @@ mod tests {
     #[test]
     fn test_config_template() {
         let template = MultiProtocolConfig::generate_template();
-        assert!(template.instances.len() > 0);
-        assert!(template.routes.len() > 0);
+        assert!(!template.instances.is_empty());
+        assert!(!template.routes.is_empty());
         assert_eq!(template.global.mode, "server");
     }
 }

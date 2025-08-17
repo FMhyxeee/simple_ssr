@@ -293,7 +293,7 @@ mod tests {
 
     #[test]
     fn test_protocol_registry() {
-        let mut registry = ProtocolRegistry::new();
+        let registry = ProtocolRegistry::new();
         assert_eq!(registry.registered_protocols().len(), 0);
         
         // 检查空注册表
