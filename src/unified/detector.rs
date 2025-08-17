@@ -190,7 +190,7 @@ impl ProtocolDetector {
 
         // 检查TLS版本
         let version = u16::from_be_bytes([data[1], data[2]]);
-        if !matches!(version, 0x0301 | 0x0302 | 0x0303 | 0x0304) {
+        if !(0x0301..=0x0304).contains(&version) {
             return false;
         }
 
@@ -259,10 +259,6 @@ impl ProtocolDetector {
         // 其他启发式规则可以在这里添加
         false
     }
-
-
-
-
 
     /// 检测TCP协议
     pub fn detect_tcp(&self, data: &[u8]) -> (ProtocolType, f32) {
@@ -448,13 +444,23 @@ mod tests {
         let detector = ProtocolDetector::new(Duration::from_secs(5), false);
 
         let methods = [
-            "GET /", "POST /api", "PUT /resource", "DELETE /item",
-            "HEAD /info", "OPTIONS /", "PATCH /update", "TRACE /debug"
+            "GET /",
+            "POST /api",
+            "PUT /resource",
+            "DELETE /item",
+            "HEAD /info",
+            "OPTIONS /",
+            "PATCH /update",
+            "TRACE /debug",
         ];
 
         for method in &methods {
             let request = method.as_bytes();
-            assert!(detector.is_http_request(request), "Failed to detect HTTP method: {}", method);
+            assert!(
+                detector.is_http_request(request),
+                "Failed to detect HTTP method: {}",
+                method
+            );
         }
     }
 
@@ -478,8 +484,12 @@ mod tests {
                 0x01, // 握手类型：ClientHello
                 0x00, 0x00, 0x0c, // 后续数据
             ];
-            assert!(detector.is_https_request(&tls_handshake), 
-                   "Failed to detect TLS {}.{}", major, minor);
+            assert!(
+                detector.is_https_request(&tls_handshake),
+                "Failed to detect TLS {}.{}",
+                major,
+                minor
+            );
         }
     }
 
@@ -494,7 +504,7 @@ mod tests {
 
         let http_without_version = b"GET /path";
         let confidence = detector.calculate_confidence(http_without_version, ProtocolType::Http);
-        assert!(confidence >= 0.85 && confidence < 0.95);
+        assert!((0.85..0.95).contains(&confidence));
 
         // 测试HTTPS置信度
         let tls_handshake = vec![0x16, 0x03, 0x03, 0x00, 0x10, 0x01];
@@ -510,10 +520,6 @@ mod tests {
         let confidence = detector.calculate_confidence(&unknown_data, ProtocolType::Unknown);
         assert_eq!(confidence, 0.0);
     }
-
-
-
-
 
     #[test]
     fn test_http_https_confidence() {

@@ -2,14 +2,13 @@
 //!
 //! 实现TCP和UDP请求的统一端口监听和处理
 
+use crate::protocol::http::HttpProxy;
 use crate::unified::{
     UnifiedResult,
     config::UnifiedConfig,
     detector::ProtocolDetector,
     router::{RequestRouter, RouteEvent, RouteResult},
 };
-use crate::protocol::http::HttpProxy;
-
 
 use log::{debug, error, info, warn};
 use std::sync::Arc;
@@ -227,10 +226,10 @@ impl UnifiedListener {
         info!("正在停止统一端口监听器...");
 
         // 发送停止信号
-        if let Some(sender) = &self.stop_sender {
-            if let Err(e) = sender.send(()) {
-                warn!("发送停止信号失败: {}", e);
-            }
+        if let Some(sender) = &self.stop_sender
+            && let Err(e) = sender.send(())
+        {
+            warn!("发送停止信号失败: {}", e);
         }
 
         // 等待所有连接关闭
@@ -267,9 +266,9 @@ impl UnifiedListener {
             tcp_connections: router_stats.tcp_routes,
             udp_packets: router_stats.udp_routes,
             http_requests: router_stats.http_routes,
-            https_requests: 0, // TODO: 实现HTTPS计数
+            https_requests: 0,        // TODO: 实现HTTPS计数
             http_connect_requests: 0, // TODO: 实现CONNECT计数
-            total_bytes: 0, // TODO: 实现字节计数
+            total_bytes: 0,           // TODO: 实现字节计数
             failed_requests: router_stats.route_errors,
             start_time: std::time::Instant::now(), // TODO: 实现正确的启动时间
         }
@@ -495,14 +494,15 @@ impl UnifiedListener {
                             continue;
                         }
                     };
-                    
+
                     let result = Self::handle_http_request(
                         stream_clone,
                         client_addr,
                         request_data,
                         is_https,
                         verbose_logging,
-                    ).await;
+                    )
+                    .await;
 
                     if let Err(e) = result {
                         error!("HTTP请求处理失败: {} (客户端: {})", e, client_addr);
@@ -564,8 +564,8 @@ impl UnifiedListener {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::net::TcpListener;
     use std::time::Duration;
+    use tokio::net::TcpListener;
 
     /// 测试HTTP代理功能
     #[tokio::test]
@@ -579,7 +579,7 @@ mod tests {
 
         // 创建监听器
         let listener = UnifiedListener::new(config);
-        
+
         // 测试统计信息初始化
         let stats = listener.get_stats().await;
         assert_eq!(stats.http_requests, 0);
@@ -592,14 +592,14 @@ mod tests {
     #[tokio::test]
     async fn test_https_connect_handling() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        
+
         // 创建模拟的CONNECT请求数据
         let connect_request = b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n";
-        
+
         // 创建模拟的TCP流
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        
+
         // 启动服务器任务
         let server_task = tokio::spawn(async move {
             if let Ok((mut stream, _)) = listener.accept().await {
@@ -611,11 +611,11 @@ mod tests {
                 }
             }
         });
-        
+
         // 创建客户端连接
         let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
         client.write_all(connect_request).await.unwrap();
-        
+
         // 等待服务器处理
         tokio::time::timeout(Duration::from_secs(1), server_task)
             .await
@@ -628,12 +628,12 @@ mod tests {
     async fn test_http_request_parsing() {
         // 创建模拟的HTTP请求数据
         let http_request = b"GET /test HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\n\r\n";
-        
+
         // 验证请求数据格式
         assert!(http_request.starts_with(b"GET"));
         let request_str = String::from_utf8_lossy(http_request);
         assert!(request_str.contains("Host: example.com"));
-        
+
         // 测试请求数据包含必要的HTTP头
         let request_str = String::from_utf8_lossy(http_request);
         assert!(request_str.contains("HTTP/1.1"));
@@ -644,18 +644,18 @@ mod tests {
     #[tokio::test]
     async fn test_stats_update() {
         let mut stats = ListenerStats::default();
-        
+
         // 模拟HTTP请求统计
         stats.http_requests += 1;
         stats.total_bytes += 100;
-        
+
         assert_eq!(stats.http_requests, 1);
         assert_eq!(stats.total_bytes, 100);
-        
+
         // 模拟HTTPS请求统计
         stats.https_requests += 1;
         stats.http_connect_requests += 1;
-        
+
         assert_eq!(stats.https_requests, 1);
         assert_eq!(stats.http_connect_requests, 1);
     }
@@ -664,10 +664,10 @@ mod tests {
     #[tokio::test]
     async fn test_error_handling() {
         let mut stats = ListenerStats::default();
-        
+
         // 模拟失败请求
         stats.failed_requests += 1;
-        
+
         assert_eq!(stats.failed_requests, 1);
     }
 }

@@ -3,8 +3,10 @@
 //! 提供各种实用工具函数
 
 pub mod address;
+pub mod dns;
 
 pub use address::*;
+pub use dns::*;
 
 use anyhow::Result;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

@@ -205,10 +205,10 @@ impl ShadowsocksClient {
             self.config.local_port()
         );
 
-        if self.config.enable_udp {
-            if let Some(udp_port) = self.config.local_udp_port {
-                info!("UDP relay enabled on port: {}", udp_port);
-            }
+        if self.config.enable_udp
+            && let Some(udp_port) = self.config.local_udp_port
+        {
+            info!("UDP relay enabled on port: {}", udp_port);
         }
 
         // 等待所有服务完成
@@ -302,7 +302,7 @@ impl ShadowsocksClient {
         // 连接到服务器
         let server_addr = self.config.server_addr()?.to_string();
 
-        let duration = Duration::from_secs(self.config.timeout as u64);
+        let duration = Duration::from_secs(self.config.timeout);
         let stream = tokio::time::timeout(duration, TcpStream::connect(&server_addr))
             .await
             .map_err(|_| anyhow!("Connection timeout"))?
@@ -365,7 +365,7 @@ pub async fn connect_to_shadowsocks_server(
     debug!("Connecting to Shadowsocks server at {}", server_addr);
 
     // 连接到服务器
-    let duration = Duration::from_secs(config.timeout as u64);
+    let duration = Duration::from_secs(config.timeout);
     let mut stream = tokio::time::timeout(duration, TcpStream::connect(&server_addr))
         .await
         .map_err(|_| anyhow!("Connection timeout"))?

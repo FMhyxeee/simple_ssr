@@ -142,14 +142,20 @@ pub struct Socks5Server {
     password: Option<String>,
 }
 
-impl Socks5Server {
-    /// 创建新的SOCKS5服务器
-    pub fn new() -> Self {
+impl Default for Socks5Server {
+    fn default() -> Self {
         Self {
             auth_methods: vec![AuthMethod::NoAuth],
             username: None,
             password: None,
         }
+    }
+}
+
+impl Socks5Server {
+    /// 创建新的SOCKS5服务器
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// 设置认证方法
@@ -453,6 +459,7 @@ impl Socks5Server {
 }
 
 /// SOCKS5客户端
+#[derive(Default)]
 pub struct Socks5Client {
     username: Option<String>,
     password: Option<String>,
@@ -461,10 +468,7 @@ pub struct Socks5Client {
 impl Socks5Client {
     /// 创建新的SOCKS5客户端
     pub fn new() -> Self {
-        Self {
-            username: None,
-            password: None,
-        }
+        Self::default()
     }
 
     /// 设置用户名密码认证
@@ -937,10 +941,11 @@ mod tests {
         let server = Socks5Server::new().with_auth_methods(vec![AuthMethod::NoAuth]);
 
         // 模拟客户端握手请求数据
-        let mut handshake_data = Vec::new();
-        handshake_data.push(SOCKS5_VERSION); // 版本
-        handshake_data.push(1); // 方法数量
-        handshake_data.push(AuthMethod::NoAuth as u8); // NoAuth方法
+        let handshake_data = vec![
+            SOCKS5_VERSION,           // 版本
+            1,                        // 方法数量
+            AuthMethod::NoAuth as u8, // NoAuth方法
+        ];
 
         let mut cursor = Cursor::new(handshake_data);
         let result = server.handle_handshake(&mut cursor).await;
@@ -953,11 +958,12 @@ mod tests {
         let server = Socks5Server::new();
 
         // 模拟SOCKS5连接请求数据
-        let mut request_data = Vec::new();
-        request_data.push(SOCKS5_VERSION); // 版本
-        request_data.push(Command::Connect as u8); // 连接命令
-        request_data.push(0x00); // 保留字段
-        request_data.push(AddressType::Ipv4 as u8); // IPv4地址类型
+        let mut request_data = vec![
+            SOCKS5_VERSION,          // 版本
+            Command::Connect as u8,  // 连接命令
+            0x00,                    // 保留字段
+            AddressType::Ipv4 as u8, // IPv4地址类型
+        ];
         request_data.extend_from_slice(&[192, 168, 1, 1]); // IP地址
         request_data.extend_from_slice(&8080u16.to_be_bytes()); // 端口
 

@@ -27,7 +27,7 @@ impl CryptoContext {
     /// # 返回
     /// 加密上下文实例
     pub fn new(method: &str, password: &str) -> Result<Self> {
-        let method = Method::from_str(method)?;
+        let method = method.parse::<Method>()?;
         let key = derive_key(password, method.key_size());
         let cipher = create_cipher(method, &key)?;
 

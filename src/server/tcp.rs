@@ -458,7 +458,6 @@ mod tests {
 
         let _handler = TcpConnectionHandler::new(config, connection_manager);
         // 只是确保创建成功
-        assert!(true);
     }
 
     #[test]

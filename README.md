@@ -8,6 +8,7 @@
 - 🔒 **安全加密**: 支持 AES-128-GCM、AES-256-GCM、ChaCha20-Poly1305
 - 🌐 **全协议支持**: TCP、UDP、SOCKS5、HTTP/HTTPS 代理
 - 🔄 **统一端口**: 智能协议检测，单端口支持多协议
+- 🧬 **智能DNS解析**: 内置LDNS解析器，支持LRU缓存和高性能域名解析
 - 📊 **实时监控**: 连接统计、流量监控、性能指标
 - 🛠️ **易于配置**: JSON/YAML 配置文件，命令行参数
 - 🔧 **模块化设计**: 清晰的代码结构，易于扩展
@@ -18,7 +19,7 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-username/simple_ssr.git
+git clone https://github.com/FMhyxeee/simple_ssr.git
 cd simple_ssr
 
 # 编译
@@ -131,6 +132,55 @@ export https_proxy=http://127.0.0.1:8080
 | aes-256-gcm | 256 位 | 很高 | 高 |
 | chacha20-poly1305 | 256 位 | 很高 | 高 |
 
+## DNS解析功能
+
+内置高性能LDNS解析器，支持LRU缓存机制，提供比系统默认解析器更快的域名解析性能。
+
+### 核心特性
+
+- **高性能异步解析**: 基于trust-dns-resolver的异步DNS解析
+- **LRU缓存机制**: 智能缓存DNS查询结果，减少重复解析
+- **灵活配置**: 支持自定义缓存大小、TTL、超时时间等参数
+- **统计监控**: 提供查询次数、缓存命中率等统计信息
+- **多解析器支持**: 可选择使用系统解析器或LDNS解析器
+- **IPv4/IPv6支持**: 同时支持A记录和AAAA记录解析
+
+### 配置选项
+
+```rust
+// LDNS解析器配置
+LdnsConfig {
+    cache_size: 1000,           // LRU缓存大小
+    default_ttl: 300,           // 默认TTL (秒)
+    timeout: Duration::from_secs(5),  // 查询超时
+    retries: 3,                 // 重试次数
+    dns_servers: vec![          // 自定义DNS服务器
+        "8.8.8.8:53".parse().unwrap(),
+        "1.1.1.1:53".parse().unwrap(),
+    ],
+}
+```
+
+### 使用示例
+
+```bash
+# 使用系统解析器测试域名解析
+./simple_ssr test-dns -d google.com -p 443
+
+# 使用LDNS解析器测试域名解析
+./simple_ssr test-dns -d google.com -p 443 --ldns
+
+# 显示详细统计信息和性能对比
+./simple_ssr test-dns -d google.com -p 443 --ldns -v
+```
+
+### 性能优势
+
+- **缓存命中**: 重复查询同一域名时，直接从缓存返回结果
+- **并发解析**: 支持多个域名同时解析，提高整体性能
+- **智能TTL**: 根据DNS记录的TTL自动管理缓存过期
+- **统计监控**: 实时监控解析性能和缓存效率
+
 ## 统一端口功能
 
 统一端口功能允许在单个端口上同时支持多种协议，通过智能检测自动识别客户端使用的协议类型。
@@ -181,6 +231,13 @@ export https_proxy=http://127.0.0.1:8080
 # 生成配置模板
 ./simple_ssr generate-config --type <TYPE>
   --type <TYPE>          配置类型 (server|client)
+
+# DNS解析测试
+./simple_ssr test-dns [OPTIONS]
+  -d, --domain <DOMAIN>  要解析的域名
+  -p, --port <PORT>      目标端口 (默认: 80)
+  --ldns                 使用LDNS解析器 (默认: 系统解析器)
+  -v, --verbose          显示详细信息和性能统计
 ```
 
 ## 性能优化
@@ -232,6 +289,17 @@ RUST_LOG=debug ./simple_ssr client -c config.json
 - Rust 1.70+
 - Cargo
 
+### 主要依赖
+
+- `tokio` - 异步运行时
+- `serde` - 序列化/反序列化
+- `trust-dns-resolver` - DNS解析器
+- `lru` - LRU缓存实现
+- `aes-gcm` / `chacha20poly1305` - 加密算法
+- `clap` - 命令行参数解析
+- `anyhow` / `thiserror` - 错误处理
+- `tracing` / `log` - 日志记录
+
 ### 开发构建
 
 ```bash
@@ -269,6 +337,9 @@ src/
 │   ├── listener.rs     # 统一监听器
 │   └── config.rs       # 统一配置
 └── utils/              # 工具函数
+    ├── address.rs      # 地址解析和处理
+    ├── dns.rs          # LDNS解析器和LRU缓存
+    └── mod.rs          # 工具模块导出
 ```
 
 ## 故障排除
@@ -314,6 +385,27 @@ src/
 2. 调整超时设置
 3. 监控会话清理情况
 4. 检查协议检测缓存
+5. 调整DNS缓存大小设置
+
+#### DNS解析问题
+
+1. **域名解析失败**
+   - 检查网络连接是否正常
+   - 验证DNS服务器是否可达
+   - 尝试使用不同的DNS服务器
+   - 检查域名是否存在
+
+2. **解析速度慢**
+   - 启用LDNS解析器提高性能
+   - 调整DNS查询超时时间
+   - 增加DNS缓存大小
+   - 检查网络延迟情况
+
+3. **缓存问题**
+   - 检查缓存命中率统计
+   - 调整缓存TTL设置
+   - 清空DNS缓存重新测试
+   - 监控缓存内存使用情况
 
 ### 调试技巧
 
@@ -338,6 +430,12 @@ curl -x http://127.0.0.1:8080 https://httpbin.org/ip
 
 # 协议检测测试
 echo "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n" | nc 127.0.0.1 8389
+
+# DNS解析测试
+./simple_ssr test-dns -d google.com --ldns -v
+./simple_ssr test-dns -d github.com -p 443 --ldns
+nslookup google.com
+dig google.com @8.8.8.8
 ```
 
 ## 使用示例

@@ -145,7 +145,7 @@ impl Socks5Stats {
             tcp_bytes_received: self.tcp_bytes_received.load(Ordering::Relaxed),
             udp_bytes_sent: self.udp_bytes_sent.load(Ordering::Relaxed),
             udp_bytes_received: self.udp_bytes_received.load(Ordering::Relaxed),
-            start_time: self.start_time.lock().unwrap().clone(),
+            start_time: *self.start_time.lock().unwrap(),
             udp_packets: self.udp_packets.load(Ordering::Relaxed),
         }
     }
@@ -444,7 +444,7 @@ impl Socks5ConnectionHandler {
         );
 
         // 连接到Shadowsocks服务器
-        let timeout_duration = Duration::from_secs(self.config.timeout as u64);
+        let timeout_duration = Duration::from_secs(self.config.timeout);
         let stream = tokio::time::timeout(timeout_duration, TcpStream::connect(&server_addr))
             .await
             .map_err(|_| anyhow!("Connection timeout"))?
@@ -808,7 +808,6 @@ mod tests {
         let _handler = Socks5ConnectionHandler::new(config, connection_manager, stats);
 
         // 验证处理器创建成功
-        assert!(true); // 如果能创建就说明成功
     }
 
     // #[tokio::test]

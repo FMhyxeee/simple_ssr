@@ -5,6 +5,9 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use simple_ssr::config::load_config_from_file;
+use simple_ssr::utils::address::{
+    ResolverType, resolve_domain_with_ldns, resolve_domain_with_resolver,
+};
 use simple_ssr::{ClientConfig, ServerConfig, init_logger, run_client, run_server};
 use tracing::{error, info};
 
@@ -82,6 +85,24 @@ enum Commands {
         /// 输出文件路径
         #[arg(short, long)]
         output: Option<String>,
+    },
+    /// 测试DNS解析功能
+    TestDns {
+        /// 要解析的域名
+        #[arg(short, long)]
+        domain: String,
+
+        /// 端口号
+        #[arg(short, long, default_value = "80")]
+        port: u16,
+
+        /// 使用LDNS解析器
+        #[arg(short, long)]
+        ldns: bool,
+
+        /// 显示详细信息
+        #[arg(short, long)]
+        verbose: bool,
     },
 }
 
@@ -238,6 +259,87 @@ async fn main() -> Result<()> {
                 info!("Client config template generated: {}", output_file);
             }
         },
+        Commands::TestDns {
+            domain,
+            port,
+            ldns,
+            verbose,
+        } => {
+            info!("Testing DNS resolution for: {}:{}", domain, port);
+
+            if ldns {
+                info!("Using LDNS resolver with LRU cache");
+                match resolve_domain_with_ldns(&domain, port).await {
+                    Ok(addrs) => {
+                        info!(
+                            "LDNS resolution successful! Found {} addresses:",
+                            addrs.len()
+                        );
+                        for (i, addr) in addrs.iter().enumerate() {
+                            info!("  [{}] {}", i + 1, addr);
+                        }
+
+                        if verbose {
+                            // 显示缓存统计信息
+                            if let Ok(resolver) =
+                                simple_ssr::utils::dns::get_global_resolver().await
+                            {
+                                let stats = resolver.get_stats();
+                                info!("Cache statistics:");
+                                info!("  Total queries: {}", stats.total_queries);
+                                info!("  Cache hits: {}", stats.cache_hits);
+                                info!("  Cache misses: {}", stats.cache_misses);
+                                info!("  Hit rate: {:.2}%", stats.cache_hit_rate() * 100.0);
+                                info!("  Cache size: {}", resolver.cache_size().await);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("LDNS resolution failed: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                info!("Using system resolver");
+                match resolve_domain_with_resolver(&domain, port, ResolverType::System).await {
+                    Ok(addrs) => {
+                        info!(
+                            "System resolution successful! Found {} addresses:",
+                            addrs.len()
+                        );
+                        for (i, addr) in addrs.iter().enumerate() {
+                            info!("  [{}] {}", i + 1, addr);
+                        }
+                    }
+                    Err(e) => {
+                        error!("System resolution failed: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+
+            // 比较两种解析器的性能
+            if verbose {
+                info!("\nPerformance comparison:");
+
+                let start = std::time::Instant::now();
+                let _ = resolve_domain_with_resolver(&domain, port, ResolverType::System).await;
+                let system_time = start.elapsed();
+
+                let start = std::time::Instant::now();
+                let _ = resolve_domain_with_ldns(&domain, port).await;
+                let ldns_time = start.elapsed();
+
+                info!("  System resolver: {:?}", system_time);
+                info!("  LDNS resolver: {:?}", ldns_time);
+
+                if ldns_time < system_time {
+                    info!("  LDNS is faster by {:?}", system_time - ldns_time);
+                } else {
+                    info!("  System is faster by {:?}", ldns_time - system_time);
+                }
+            }
+        }
     }
 
     Ok(())
@@ -333,6 +435,83 @@ mod tests {
                 assert_eq!(method, Some("aes-256-gcm".to_string()));
             }
             _ => panic!("Expected client command"),
+        }
+    }
+
+    #[test]
+    fn test_test_dns_command_parsing() {
+        let args = vec![
+            "simple-ssr",
+            "test-dns",
+            "--domain",
+            "example.com",
+            "--port",
+            "443",
+            "--ldns",
+            "--verbose",
+        ];
+
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::TestDns {
+                domain,
+                port,
+                ldns,
+                verbose,
+            } => {
+                assert_eq!(domain, "example.com");
+                assert_eq!(port, 443);
+                assert!(ldns);
+                assert!(verbose);
+            }
+            _ => panic!("Expected test-dns command"),
+        }
+    }
+
+    #[test]
+    fn test_test_dns_command_defaults() {
+        let args = vec!["simple-ssr", "test-dns", "--domain", "localhost"];
+
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::TestDns {
+                domain,
+                port,
+                ldns,
+                verbose,
+            } => {
+                assert_eq!(domain, "localhost");
+                assert_eq!(port, 80); // 默认端口
+                assert!(!ldns); // 默认不使用LDNS
+                assert!(!verbose); // 默认不显示详细信息
+            }
+            _ => panic!("Expected test-dns command"),
+        }
+    }
+
+    #[test]
+    fn test_gen_config_command_parsing() {
+        let args = vec![
+            "simple-ssr",
+            "gen-config",
+            "server",
+            "--output",
+            "my_server.toml",
+        ];
+
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::GenConfig {
+                config_type,
+                output,
+            } => {
+                assert!(matches!(config_type, ConfigType::Server));
+                assert_eq!(output, Some("my_server.toml".to_string()));
+            }
+            _ => panic!("Expected gen-config command"),
         }
     }
 }

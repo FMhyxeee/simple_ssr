@@ -288,8 +288,8 @@ impl UdpServer {
         connection_manager: Arc<ConnectionManager>,
     ) -> Result<Self> {
         let session_manager = Arc::new(UdpSessionManager::new(
-            Duration::from_secs(60),                    // 清理间隔
-            Duration::from_secs(config.timeout as u64), // 会话超时
+            Duration::from_secs(60),             // 清理间隔
+            Duration::from_secs(config.timeout), // 会话超时
         ));
 
         Ok(Self {
@@ -493,7 +493,6 @@ impl UdpServer {
                 // 启动响应监听任务
                 let socket = socket.clone();
                 let target_socket = target_socket.clone();
-                let client_addr = client_addr;
                 let protocol = protocol.clone();
                 let stats = stats.clone();
 

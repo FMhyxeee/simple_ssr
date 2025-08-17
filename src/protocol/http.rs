@@ -2,11 +2,14 @@
 //!
 //! 提供HTTP代理和HTTPS隧道功能
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader as AsyncBufReader};
+use tokio::io::{
+    AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
+    BufReader as AsyncBufReader,
+};
 use tokio::net::TcpStream;
 use url::Url;
 
@@ -142,15 +145,19 @@ impl HttpProxy {
     {
         // 解析HTTP请求
         let request = self.parse_http_request(&mut stream).await?;
-        
+
         if self.verbose_logging {
-            info!("收到来自 {} 的 {} 请求: {}", client_addr, request.method, request.uri);
+            info!(
+                "收到来自 {} 的 {} 请求: {}",
+                client_addr, request.method, request.uri
+            );
         }
 
         match request.method {
             HttpMethod::Connect => {
                 // 处理HTTPS隧道
-                self.handle_connect_method(stream, &request, client_addr).await
+                self.handle_connect_method(stream, &request, client_addr)
+                    .await
             }
             _ => {
                 // 处理普通HTTP请求
@@ -166,11 +173,11 @@ impl HttpProxy {
     {
         let mut reader = AsyncBufReader::new(stream);
         let mut line = String::new();
-        
+
         // 读取请求行
         reader.read_line(&mut line).await?;
         let request_line = line.trim();
-        
+
         if request_line.is_empty() {
             return Err(anyhow!("空的HTTP请求行"));
         }
@@ -191,7 +198,7 @@ impl HttpProxy {
             line.clear();
             reader.read_line(&mut line).await?;
             let header_line = line.trim();
-            
+
             if header_line.is_empty() {
                 break; // 空行表示头部结束
             }
@@ -205,13 +212,12 @@ impl HttpProxy {
 
         // 读取请求体（如果有Content-Length）
         let mut body = Vec::new();
-        if let Some(content_length_str) = headers.get("content-length") {
-            if let Ok(content_length) = content_length_str.parse::<usize>() {
-                if content_length > 0 {
-                    body.resize(content_length, 0);
-                    reader.read_exact(&mut body).await?;
-                }
-            }
+        if let Some(content_length_str) = headers.get("content-length")
+            && let Ok(content_length) = content_length_str.parse::<usize>()
+            && content_length > 0
+        {
+            body.resize(content_length, 0);
+            reader.read_exact(&mut body).await?;
         }
 
         Ok(HttpRequest {
@@ -235,31 +241,38 @@ impl HttpProxy {
     {
         // 解析目标地址
         let target_addr = self.parse_connect_target(&request.uri)?;
-        
+
         if self.verbose_logging {
-            debug!("为客户端 {} 建立到 {} 的HTTPS隧道", client_addr, target_addr);
+            debug!(
+                "为客户端 {} 建立到 {} 的HTTPS隧道",
+                client_addr, target_addr
+            );
         }
 
         // 连接到目标服务器
         let target_stream = match tokio::time::timeout(
             tokio::time::Duration::from_secs(self.connect_timeout),
             TcpStream::connect(&target_addr),
-        ).await {
+        )
+        .await
+        {
             Ok(Ok(stream)) => stream,
             Ok(Err(e)) => {
                 error!("连接到目标服务器 {} 失败: {}", target_addr, e);
-                self.send_connect_error(&mut client_stream, 502, "Bad Gateway").await?;
+                self.send_connect_error(&mut client_stream, 502, "Bad Gateway")
+                    .await?;
                 return Err(anyhow!("连接目标服务器失败: {}", e));
             }
             Err(_) => {
                 error!("连接到目标服务器 {} 超时", target_addr);
-                self.send_connect_error(&mut client_stream, 504, "Gateway Timeout").await?;
+                self.send_connect_error(&mut client_stream, 504, "Gateway Timeout")
+                    .await?;
                 return Err(anyhow!("连接目标服务器超时"));
             }
         };
 
         // 发送200 Connection Established响应
-        let response = format!("HTTP/1.1 200 Connection Established\r\n\r\n");
+        let response = "HTTP/1.1 200 Connection Established\r\n\r\n";
         client_stream.write_all(response.as_bytes()).await?;
         client_stream.flush().await?;
 
@@ -286,7 +299,7 @@ impl HttpProxy {
         // 解析目标URL
         let url = self.parse_http_url(&request.uri)?;
         let target_addr = self.resolve_http_target(&url).await?;
-        
+
         if self.verbose_logging {
             debug!("为客户端 {} 转发HTTP请求到 {}", client_addr, target_addr);
         }
@@ -295,23 +308,29 @@ impl HttpProxy {
         let mut target_stream = match tokio::time::timeout(
             tokio::time::Duration::from_secs(self.connect_timeout),
             TcpStream::connect(&target_addr),
-        ).await {
+        )
+        .await
+        {
             Ok(Ok(stream)) => stream,
             Ok(Err(e)) => {
                 error!("连接到目标服务器 {} 失败: {}", target_addr, e);
-                self.send_http_error(&mut client_stream, 502, "Bad Gateway").await?;
+                self.send_http_error(&mut client_stream, 502, "Bad Gateway")
+                    .await?;
                 return Err(anyhow!("连接目标服务器失败: {}", e));
             }
             Err(_) => {
                 error!("连接到目标服务器 {} 超时", target_addr);
-                self.send_http_error(&mut client_stream, 504, "Gateway Timeout").await?;
+                self.send_http_error(&mut client_stream, 504, "Gateway Timeout")
+                    .await?;
                 return Err(anyhow!("连接目标服务器超时"));
             }
         };
 
         // 构建并发送请求到目标服务器
         let forwarded_request = self.build_forwarded_request(request, &url)?;
-        target_stream.write_all(forwarded_request.as_bytes()).await?;
+        target_stream
+            .write_all(forwarded_request.as_bytes())
+            .await?;
         target_stream.flush().await?;
 
         // 读取目标服务器响应并转发给客户端
@@ -354,19 +373,16 @@ impl HttpProxy {
             Url::parse(uri).map_err(|e| anyhow!("解析URL失败: {}", e))
         } else {
             // 相对URL，假设为HTTP
-            Url::parse(&format!("http://{}", uri))
-                .map_err(|e| anyhow!("解析相对URL失败: {}", e))
+            Url::parse(&format!("http://{}", uri)).map_err(|e| anyhow!("解析相对URL失败: {}", e))
         }
     }
 
     /// 解析HTTP目标地址
     async fn resolve_http_target(&self, url: &Url) -> Result<String> {
         let host = url.host_str().ok_or_else(|| anyhow!("URL中缺少主机名"))?;
-        let port = url.port().unwrap_or_else(|| {
-            match url.scheme() {
-                "https" => 443,
-                _ => 80,
-            }
+        let port = url.port().unwrap_or_else(|| match url.scheme() {
+            "https" => 443,
+            _ => 80,
         });
         Ok(format!("{}:{}", host, port))
     }
@@ -374,16 +390,19 @@ impl HttpProxy {
     /// 构建转发的HTTP请求
     fn build_forwarded_request(&self, request: &HttpRequest, url: &Url) -> Result<String> {
         let mut request_lines = Vec::new();
-        
+
         // 构建请求行
         let path_and_query = if let Some(query) = url.query() {
             format!("{}?{}", url.path(), query)
         } else {
             url.path().to_string()
         };
-        
-        request_lines.push(format!("{} {} {}", request.method, path_and_query, request.version));
-        
+
+        request_lines.push(format!(
+            "{} {} {}",
+            request.method, path_and_query, request.version
+        ));
+
         // 添加Host头（如果原请求中没有）
         let mut has_host = false;
         for (name, value) in &request.headers {
@@ -392,28 +411,26 @@ impl HttpProxy {
             }
             request_lines.push(format!("{}: {}", name, value));
         }
-        
-        if !has_host {
-            if let Some(host) = url.host_str() {
-                let host_header = if let Some(port) = url.port() {
-                    format!("{}:{}", host, port)
-                } else {
-                    host.to_string()
-                };
-                request_lines.push(format!("Host: {}", host_header));
-            }
+
+        if !has_host && let Some(host) = url.host_str() {
+            let host_header = if let Some(port) = url.port() {
+                format!("{}:{}", host, port)
+            } else {
+                host.to_string()
+            };
+            request_lines.push(format!("Host: {}", host_header));
         }
-        
+
         // 添加空行
         request_lines.push(String::new());
-        
+
         let mut result = request_lines.join("\r\n");
-        
+
         // 添加请求体
         if !request.body.is_empty() {
             result.push_str(&String::from_utf8_lossy(&request.body));
         }
-        
+
         Ok(result)
     }
 
@@ -427,10 +444,7 @@ impl HttpProxy {
     where
         S: AsyncWrite + Unpin,
     {
-        let response = format!(
-            "HTTP/1.1 {} {}\r\n\r\n",
-            status_code, status_message
-        );
+        let response = format!("HTTP/1.1 {} {}\r\n\r\n", status_code, status_message);
         stream.write_all(response.as_bytes()).await?;
         stream.flush().await?;
         Ok(())
@@ -452,7 +466,10 @@ impl HttpProxy {
         );
         let response = format!(
             "HTTP/1.1 {} {}\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
-            status_code, status_message, body.len(), body
+            status_code,
+            status_message,
+            body.len(),
+            body
         );
         stream.write_all(response.as_bytes()).await?;
         stream.flush().await?;
@@ -472,7 +489,7 @@ impl HttpProxy {
         let mut target_write_buf = tokio::io::BufWriter::new(target_write);
         let mut target_read_buf = tokio::io::BufReader::new(target_read);
         let mut client_write_buf = tokio::io::BufWriter::new(client_write);
-        
+
         let client_to_target = tokio::io::copy(&mut client_read_buf, &mut target_write_buf);
         let target_to_client = tokio::io::copy(&mut target_read_buf, &mut client_write_buf);
 
@@ -505,7 +522,9 @@ impl HttpProxy {
         };
 
         // 检查是否以HTTP方法开头
-        let methods = ["GET ", "POST ", "PUT ", "DELETE ", "HEAD ", "OPTIONS ", "PATCH ", "CONNECT ", "TRACE "];
+        let methods = [
+            "GET ", "POST ", "PUT ", "DELETE ", "HEAD ", "OPTIONS ", "PATCH ", "CONNECT ", "TRACE ",
+        ];
         methods.iter().any(|method| data_str.starts_with(method))
     }
 
@@ -531,7 +550,10 @@ mod tests {
     fn test_http_method_parsing() {
         assert_eq!("GET".parse::<HttpMethod>().unwrap(), HttpMethod::Get);
         assert_eq!("POST".parse::<HttpMethod>().unwrap(), HttpMethod::Post);
-        assert_eq!("CONNECT".parse::<HttpMethod>().unwrap(), HttpMethod::Connect);
+        assert_eq!(
+            "CONNECT".parse::<HttpMethod>().unwrap(),
+            HttpMethod::Connect
+        );
         assert!("INVALID".parse::<HttpMethod>().is_err());
     }
 
@@ -546,16 +568,24 @@ mod tests {
     fn test_is_http_request() {
         assert!(HttpProxy::is_http_request(b"GET / HTTP/1.1\r\n"));
         assert!(HttpProxy::is_http_request(b"POST /api HTTP/1.1\r\n"));
-        assert!(HttpProxy::is_http_request(b"CONNECT example.com:443 HTTP/1.1\r\n"));
+        assert!(HttpProxy::is_http_request(
+            b"CONNECT example.com:443 HTTP/1.1\r\n"
+        ));
         assert!(!HttpProxy::is_http_request(b"\x16\x03\x01\x00\x01"));
         assert!(!HttpProxy::is_http_request(b"INVALID"));
     }
 
     #[test]
     fn test_is_https_request() {
-        assert!(HttpProxy::is_https_request(&[0x16, 0x03, 0x01, 0x00, 0x01, 0x00]));
-        assert!(HttpProxy::is_https_request(&[0x16, 0x03, 0x03, 0x00, 0x01, 0x00]));
-        assert!(!HttpProxy::is_https_request(&[0x15, 0x03, 0x01, 0x00, 0x01, 0x00]));
+        assert!(HttpProxy::is_https_request(&[
+            0x16, 0x03, 0x01, 0x00, 0x01, 0x00
+        ]));
+        assert!(HttpProxy::is_https_request(&[
+            0x16, 0x03, 0x03, 0x00, 0x01, 0x00
+        ]));
+        assert!(!HttpProxy::is_https_request(&[
+            0x15, 0x03, 0x01, 0x00, 0x01, 0x00
+        ]));
         assert!(!HttpProxy::is_https_request(b"GET / HTTP/1.1"));
         assert!(!HttpProxy::is_https_request(&[0x16, 0x02]));
     }
@@ -565,20 +595,29 @@ mod tests {
         let proxy = HttpProxy::new();
         let request_data = b"GET /test HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\n\r\n";
         let mut cursor = Cursor::new(request_data);
-        
+
         let request = proxy.parse_http_request(&mut cursor).await.unwrap();
         assert_eq!(request.method, HttpMethod::Get);
         assert_eq!(request.uri, "/test");
         assert_eq!(request.version, "HTTP/1.1");
-        assert_eq!(request.headers.get("host"), Some(&"example.com".to_string()));
+        assert_eq!(
+            request.headers.get("host"),
+            Some(&"example.com".to_string())
+        );
         assert_eq!(request.headers.get("user-agent"), Some(&"test".to_string()));
     }
 
     #[test]
     fn test_parse_connect_target() {
         let proxy = HttpProxy::new();
-        assert_eq!(proxy.parse_connect_target("example.com:443").unwrap(), "example.com:443");
-        assert_eq!(proxy.parse_connect_target("example.com").unwrap(), "example.com:443");
+        assert_eq!(
+            proxy.parse_connect_target("example.com:443").unwrap(),
+            "example.com:443"
+        );
+        assert_eq!(
+            proxy.parse_connect_target("example.com").unwrap(),
+            "example.com:443"
+        );
     }
 
     #[test]
@@ -587,7 +626,7 @@ mod tests {
         let url = proxy.parse_http_url("http://example.com/path").unwrap();
         assert_eq!(url.host_str(), Some("example.com"));
         assert_eq!(url.path(), "/path");
-        
+
         let url = proxy.parse_http_url("example.com/path").unwrap();
         assert_eq!(url.host_str(), Some("example.com"));
         assert_eq!(url.path(), "/path");
@@ -599,7 +638,7 @@ mod tests {
         let url = Url::parse("http://example.com/path").unwrap();
         let target = proxy.resolve_http_target(&url).await.unwrap();
         assert_eq!(target, "example.com:80");
-        
+
         let url = Url::parse("https://example.com/path").unwrap();
         let target = proxy.resolve_http_target(&url).await.unwrap();
         assert_eq!(target, "example.com:443");
@@ -610,7 +649,7 @@ mod tests {
         let proxy = HttpProxy::new();
         let mut headers = HashMap::new();
         headers.insert("user-agent".to_string(), "test".to_string());
-        
+
         let request = HttpRequest {
             method: HttpMethod::Get,
             uri: "/test".to_string(),
@@ -618,10 +657,10 @@ mod tests {
             headers,
             body: Vec::new(),
         };
-        
+
         let url = Url::parse("http://example.com/test").unwrap();
         let forwarded = proxy.build_forwarded_request(&request, &url).unwrap();
-        
+
         assert!(forwarded.contains("GET /test HTTP/1.1"));
         assert!(forwarded.contains("Host: example.com"));
         assert!(forwarded.contains("user-agent: test"));
@@ -633,12 +672,12 @@ mod tests {
         assert!(!proxy.verbose_logging);
         assert_eq!(proxy.user_agent, "SimpleSSR-HttpProxy/1.0");
         assert_eq!(proxy.connect_timeout, 30);
-        
+
         let proxy = HttpProxy::new()
             .with_verbose_logging(true)
             .with_user_agent("Custom/1.0".to_string())
             .with_connect_timeout(60);
-        
+
         assert!(proxy.verbose_logging);
         assert_eq!(proxy.user_agent, "Custom/1.0");
         assert_eq!(proxy.connect_timeout, 60);

@@ -306,8 +306,10 @@ mod tests {
 
     #[test]
     fn test_local_udp_addr() {
-        let mut config = ClientConfig::default();
-        config.local_udp_port = Some(1081);
+        let config = ClientConfig {
+            local_udp_port: Some(1081),
+            ..Default::default()
+        };
 
         let addr = config.local_udp_addr().unwrap().unwrap();
         assert_eq!(addr.to_string(), "127.0.0.1:1081");
@@ -339,8 +341,10 @@ mod tests {
 
     #[test]
     fn test_unified_port_without_config() {
-        let mut config = ClientConfig::default();
-        config.enable_unified_port = true;
+        let config = ClientConfig {
+            enable_unified_port: true,
+            ..Default::default()
+        };
 
         assert!(config.should_use_unified_port());
         assert!(config.unified_config().is_none());

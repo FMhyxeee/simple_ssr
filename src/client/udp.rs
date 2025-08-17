@@ -98,7 +98,7 @@ impl UdpStats {
             udp_packets: self.packets.load(Ordering::Relaxed),
             udp_bytes_sent: self.bytes_sent.load(Ordering::Relaxed),
             udp_bytes_received: self.bytes_received.load(Ordering::Relaxed),
-            start_time: self.start_time.lock().unwrap().clone(),
+            start_time: *self.start_time.lock().unwrap(),
             ..Default::default()
         }
     }
@@ -262,8 +262,8 @@ impl UdpClient {
         connection_manager: Arc<ConnectionManager>,
     ) -> Result<Self> {
         let session_manager = Arc::new(UdpSessionManager::new(
-            Duration::from_secs(60),                    // 清理间隔
-            Duration::from_secs(config.timeout as u64), // 会话超时
+            Duration::from_secs(60),             // 清理间隔
+            Duration::from_secs(config.timeout), // 会话超时
         ));
 
         Ok(Self {
@@ -476,7 +476,6 @@ impl UdpClient {
                 // 启动响应监听任务
                 let local_socket = local_socket.clone();
                 let server_socket = server_socket.clone();
-                let local_client_addr = local_client_addr;
                 let protocol = protocol.clone();
                 let stats = stats.clone();
 

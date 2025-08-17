@@ -240,8 +240,10 @@ mod tests {
     fn test_unified_port_with_config() {
         use crate::unified::config::UnifiedConfig;
 
-        let mut config = ServerConfig::default();
-        config.password = "test_password".to_string();
+        let config = ServerConfig {
+            password: "test_password".to_string(),
+            ..Default::default()
+        };
 
         let unified_config = UnifiedConfig::new("0.0.0.0:8388".parse().unwrap());
 
@@ -256,9 +258,11 @@ mod tests {
 
     #[test]
     fn test_unified_port_without_config() {
-        let mut config = ServerConfig::default();
-        config.password = "test_password".to_string();
-        config.enable_unified_port = true;
+        let config = ServerConfig {
+            password: "test_password".to_string(),
+            enable_unified_port: true,
+            ..Default::default()
+        };
 
         assert!(config.should_use_unified_port());
         assert!(config.unified_config().is_none());

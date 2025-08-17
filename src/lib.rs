@@ -305,7 +305,6 @@ mod tests {
         }
 
         // 测试至少验证了配置和基本组件创建是正确的
-        assert!(true, "Basic integration test completed");
     }
 
     /// 测试加密方法验证
@@ -618,25 +617,19 @@ mod tests {
                 println!(
                     "🎉 End-to-end test PASSED: Successfully proxied HTTPS request through Shadowsocks!"
                 );
-                assert!(true, "End-to-end test completed successfully");
+                // End-to-end test completed successfully
             }
             Ok(Err(e)) => {
                 println!("❌ End-to-end test failed: {}", e);
                 // 在测试环境中，网络请求可能失败，但基本功能测试已经验证
                 println!("Note: Network connectivity issues are common in test environments");
-                assert!(
-                    true,
-                    "Test infrastructure validated even if network request failed"
-                );
+                // Test infrastructure validated even if network request failed
             }
             Err(_) => {
                 println!(
                     "⏰ End-to-end test timed out - this may be expected in restricted test environments"
                 );
-                assert!(
-                    true,
-                    "Test timeout is acceptable in constrained environments"
-                );
+                // Test timeout is acceptable in constrained environments
             }
         }
     }

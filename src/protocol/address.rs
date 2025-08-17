@@ -8,6 +8,7 @@ use super::{
 use anyhow::{Result, anyhow};
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::str::FromStr;
 
 /// 地址类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,21 +149,49 @@ impl Address {
         }
     }
 
-    /// 转换为字符串表示
-    pub fn to_string(&self) -> String {
+    /// 检查是否为IP地址
+    pub fn is_ip(&self) -> bool {
+        matches!(self, Address::SocketAddr(_))
+    }
+
+    /// 检查是否为域名
+    pub fn is_domain(&self) -> bool {
+        matches!(self, Address::DomainNameAddr(_, _))
+    }
+
+    /// 获取地址类型
+    pub fn address_type(&self) -> AddressType {
         match self {
-            Address::SocketAddr(addr) => addr.to_string(),
-            Address::DomainNameAddr(domain, port) => format!("{}:{}", domain, port),
+            Address::SocketAddr(addr) => match addr.ip() {
+                IpAddr::V4(_) => AddressType::Ipv4,
+                IpAddr::V6(_) => AddressType::Ipv6,
+            },
+            Address::DomainNameAddr(_, _) => AddressType::Domain,
         }
     }
 
-    /// 从字符串解析地址
+    /// 异步解析为SocketAddr
     ///
-    /// 支持的格式：
-    /// - "192.168.1.1:8080" (IPv4)
-    /// - "[::1]:8080" (IPv6)
-    /// - "example.com:8080" (域名)
-    pub fn from_str(s: &str) -> Result<Self> {
+    /// 对于域名地址，会进行DNS解析
+    pub async fn to_socket_addr(&self) -> Result<SocketAddr> {
+        match self {
+            Address::SocketAddr(addr) => Ok(*addr),
+            Address::DomainNameAddr(domain, port) => {
+                use tokio::net::lookup_host;
+                let addr_str = format!("{}:{}", domain, port);
+                let mut addrs = lookup_host(&addr_str)
+                    .await
+                    .map_err(|e| anyhow!("DNS解析失败: {}", e))?;
+                addrs.next().ok_or_else(|| anyhow!("DNS解析未返回任何地址"))
+            }
+        }
+    }
+}
+
+impl FromStr for Address {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
         // 尝试解析为SocketAddr
         if let Ok(addr) = s.parse::<SocketAddr>() {
             return Ok(Address::SocketAddr(addr));
@@ -194,49 +223,14 @@ impl Address {
 
         Err(anyhow!("Invalid address format: {}", s))
     }
-
-    /// 检查是否为IP地址
-    pub fn is_ip(&self) -> bool {
-        matches!(self, Address::SocketAddr(_))
-    }
-
-    /// 检查是否为域名
-    pub fn is_domain(&self) -> bool {
-        matches!(self, Address::DomainNameAddr(_, _))
-    }
-
-    /// 获取地址类型
-    pub fn address_type(&self) -> AddressType {
-        match self {
-            Address::SocketAddr(addr) => match addr.ip() {
-                IpAddr::V4(_) => AddressType::Ipv4,
-                IpAddr::V6(_) => AddressType::Ipv6,
-            },
-            Address::DomainNameAddr(_, _) => AddressType::Domain,
-        }
-    }
-
-    /// 异步解析为SocketAddr
-    ///
-    /// 对于域名地址，会进行DNS解析
-    pub async fn to_socket_addr(&self) -> Result<SocketAddr> {
-        match self {
-            Address::SocketAddr(addr) => Ok(*addr),
-            Address::DomainNameAddr(domain, port) => {
-                use tokio::net::lookup_host;
-                let addr_str = format!("{}:{}", domain, port);
-                let mut addrs = lookup_host(&addr_str).await
-                    .map_err(|e| anyhow!("DNS解析失败: {}", e))?;
-                addrs.next()
-                    .ok_or_else(|| anyhow!("DNS解析未返回任何地址"))
-            }
-        }
-    }
 }
 
 impl std::fmt::Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
+        match self {
+            Address::SocketAddr(addr) => write!(f, "{}", addr),
+            Address::DomainNameAddr(domain, port) => write!(f, "{}:{}", domain, port),
+        }
     }
 }
 

@@ -142,8 +142,13 @@ impl RequestRouter {
                 if self.verbose_logging {
                     info!(
                         "路由{}请求: {} -> HTTP处理器 (置信度: {:.2})",
-                        if matches!(detection_result.protocol, ProtocolType::Http) { "HTTP" } else { "HTTPS" },
-                        detection_result.client_addr, detection_result.confidence
+                        if matches!(detection_result.protocol, ProtocolType::Http) {
+                            "HTTP"
+                        } else {
+                            "HTTPS"
+                        },
+                        detection_result.client_addr,
+                        detection_result.confidence
                     );
                 }
 
@@ -276,10 +281,7 @@ impl RequestRouter {
 
         // TODO: 实现实际的TCP连接建立逻辑
         // 这可能涉及到从UDP socket转换为TCP stream的复杂逻辑
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "TCP连接建立功能待实现",
-        ))
+        Err(std::io::Error::other("TCP连接建立功能待实现"))
     }
 
     /// 发送错误事件
@@ -494,7 +496,8 @@ mod tests {
 
     #[test]
     fn test_create_with_receivers() {
-        let (router, _tcp_receiver, _udp_receiver, _http_receiver) = RequestRouter::create_with_receivers(false);
+        let (router, _tcp_receiver, _udp_receiver, _http_receiver) =
+            RequestRouter::create_with_receivers(false);
         assert!(!router.verbose_logging);
     }
 
@@ -505,7 +508,7 @@ mod tests {
         let (http_sender, _http_receiver) = mpsc::unbounded_channel();
 
         let router = RequestRouter::new(tcp_sender, udp_sender, http_sender, true);
-        
+
         // 模拟HTTP检测结果
         let client_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
         let detection_result = DetectionResult {
@@ -516,11 +519,11 @@ mod tests {
         };
 
         let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
-        
+
         // 注意：这个测试会失败，因为establish_tcp_connection是占位符实现
         // 在实际实现中，需要提供真实的TCP连接建立逻辑
         let result = router.route_to_http(detection_result, socket).await;
-        
+
         // 验证错误处理
         match result {
             UnifiedResult::Error(msg) => {

@@ -11,6 +11,7 @@ pub use cipher::CryptoContext;
 use anyhow::{Result, anyhow};
 use ring::digest;
 use std::num::Wrapping;
+use std::str::FromStr;
 
 /// 支持的加密方法
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,9 +21,10 @@ pub enum Method {
     ChaCha20Poly1305,
 }
 
-impl Method {
-    /// 从字符串解析加密方法
-    pub fn from_str(s: &str) -> Result<Self> {
+impl FromStr for Method {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
         match s.to_lowercase().as_str() {
             "aes-128-gcm" => Ok(Method::Aes128Gcm),
             "aes-256-gcm" => Ok(Method::Aes256Gcm),
@@ -30,7 +32,9 @@ impl Method {
             _ => Err(anyhow!("Unsupported encryption method: {}", s)),
         }
     }
+}
 
+impl Method {
     /// 获取密钥长度
     pub fn key_size(&self) -> usize {
         match self {
